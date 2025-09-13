@@ -1,0 +1,3561 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบติดตามศิษย์ปัจจุบันและศิษย์เก่า - คณะพยาบาลศาสตร์ มหาวิทยาลัยอัสสัมชัญ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Google Apps Script Integration -->
+    <script>
+        // Google Apps Script API functions (fallback to localStorage if not available)
+        function saveToGoogleSheets(sheetName, data) {
+            return new Promise((resolve, reject) => {
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .saveData(sheetName, data);
+                } else {
+                    // Fallback to localStorage
+                    console.warn('Google Apps Script not available, using localStorage');
+                    const key = `${sheetName}_${data.email || Date.now()}`;
+                    localStorage.setItem(key, JSON.stringify(data));
+                    resolve({ success: true, message: 'Saved to localStorage' });
+                }
+            });
+        }
+        
+        function loadFromGoogleSheets(sheetName, email = null) {
+            return new Promise((resolve, reject) => {
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .loadData(sheetName, email);
+                } else {
+                    // Fallback to localStorage
+                    console.warn('Google Apps Script not available, using localStorage');
+                    const key = `${sheetName}_${email}`;
+                    const data = localStorage.getItem(key);
+                    resolve(data ? JSON.parse(data) : null);
+                }
+            });
+        }
+        
+        function authenticateUser(email, password) {
+            return new Promise((resolve, reject) => {
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .authenticate(email, password);
+                } else {
+                    // This will be handled by the main login function
+                    resolve(null);
+                }
+            });
+        }
+        
+        function registerUser(userData) {
+            return new Promise((resolve, reject) => {
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .register(userData);
+                } else {
+                    // This will be handled by the main registration function
+                    resolve({ success: true, message: 'Registered locally' });
+                }
+            });
+        }
+        
+        function getDashboardData() {
+            return new Promise((resolve, reject) => {
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .getDashboardStats();
+                } else {
+                    // Fallback data
+                    resolve({
+                        users: { students: 156, alumni: 342, total: 498 },
+                        exams: { passed: 89, failed: 67, passRate: 78, subjectStats: {} },
+                        donations: { amount: 2450000, total: 45, purposes: {} },
+                        demographics: { 
+                            gender: { 'หญิง': 420, 'ชาย': 78 },
+                            age: { '20-25': 234, '26-30': 156, '31-35': 89, '36-40': 19 },
+                            nationality: { 'ไทย': 456, 'อื่นๆ': 42 },
+                            graduationClass: { 'LXVI': 89, 'LXV': 123, 'LXIV': 98 }
+                        }
+                    });
+                }
+            });
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Sarabun', sans-serif;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #ed820e 0%, #ffb27f 100%);
+        }
+        
+        .card-shadow {
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        
+        .hover-scale {
+            transition: transform 0.3s ease;
+        }
+        
+        .hover-scale:hover {
+            transform: scale(1.02);
+        }
+        
+        .id-card {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border-radius: 15px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .id-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #ffd700, #ffed4e, #ffd700);
+        }
+        
+        .alumni-card {
+            background: linear-gradient(135deg, #8B4513 0%, #A0522D 100%);
+        }
+        
+        .nav-item {
+            transition: all 0.3s ease;
+        }
+        
+        .nav-item:hover {
+            background-color: rgba(255,255,255,0.1);
+            border-radius: 8px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 20px 0;
+        }
+        
+        .stats-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .stats-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.15);
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+        
+        .animate-slide-in {
+            animation: slideIn 0.6s ease-out forwards;
+        }
+        
+        .progress-bar {
+            background: linear-gradient(90deg, #ed820e 0%, #ffb27f 100%);
+            height: 8px;
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        
+        .exam-progress {
+            background: #f3f4f6;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Login Page -->
+    <div id="loginPage" class="min-h-screen gradient-bg flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+            <!-- Language Switcher -->
+            <div class="flex justify-end mb-4">
+                <div class="flex items-center space-x-2">
+                    <button onclick="switchLoginLanguage('th')" id="loginLangTh" class="px-3 py-1 rounded bg-orange-600 text-white text-sm">TH</button>
+                    <button onclick="switchLoginLanguage('en')" id="loginLangEn" class="px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm">EN</button>
+                </div>
+            </div>
+            
+            <div class="text-center mb-8">
+                <div class="w-20 h-20 bg-orange-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-graduation-cap text-white text-2xl"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-800 mb-2" data-th="ระบบติดตามศิษย์ปัจจุบันและศิษย์เก่า" data-en="Alumni & Student Tracking System">ระบบติดตามศิษย์ปัจจุบันและศิษย์เก่า</h1>
+                <p class="text-gray-600 text-sm" data-th="คณะพยาบาลศาสตร์ มหาวิทยาลัยอัสสัมชัญ" data-en="Faculty of Nursing Science, Assumption University">คณะพยาบาลศาสตร์ มหาวิทยาลัยอัสสัมชัญ</p>
+            </div>
+            
+            <form id="loginForm" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" data-th="อีเมล" data-en="Email">อีเมล</label>
+                    <input type="email" id="loginEmail" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" data-placeholder-th="กรอกอีเมลของคุณ" data-placeholder-en="Enter your email" placeholder="กรอกอีเมลของคุณ" required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" data-th="รหัสผ่าน" data-en="Password">รหัสผ่าน</label>
+                    <input type="password" id="loginPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" data-placeholder-th="กรอกรหัสผ่านของคุณ" data-placeholder-en="Enter your password" placeholder="กรอกรหัสผ่านของคุณ" required>
+                </div>
+                
+                <button type="submit" class="w-full bg-orange-600 text-white py-3 rounded-lg font-medium hover:bg-orange-700 transition duration-300" data-th="เข้าสู่ระบบ" data-en="Login">
+                    เข้าสู่ระบบ
+                </button>
+                
+                <div class="text-center space-y-2">
+                    <a href="#" onclick="showForgotPassword()" class="text-blue-600 hover:underline text-sm" data-th="ลืมรหัสผ่าน?" data-en="Forgot Password?">ลืมรหัสผ่าน?</a>
+                    <div class="text-gray-500 text-sm" data-th="หรือ" data-en="or">หรือ</div>
+                    <a href="#" onclick="showSignUp()" class="text-green-600 hover:underline text-sm font-medium" data-th="สมัครสมาชิกใหม่" data-en="Sign Up">สมัครสมาชิกใหม่</a>
+                </div>
+            </form>
+            
+            <!-- Demo Accounts Info -->
+            <div class="mt-8 p-4 bg-gray-50 rounded-lg">
+                <h3 class="font-medium text-gray-700 mb-2" data-th="บัญชีทดสอบ:" data-en="Demo Accounts:">บัญชีทดสอบ:</h3>
+                <div class="text-xs text-gray-600 space-y-1">
+                    <div><strong data-th="ผู้ดูแลระบบ" data-en="Admin">ผู้ดูแลระบบ</strong>: admin@abac.edu / admin1234</div>
+                    <div><strong data-th="นักศึกษา" data-en="Student">นักศึกษา</strong>: student@abac.edu / student1234</div>
+                    <div><strong data-th="ศิษย์เก่า" data-en="Alumni">ศิษย์เก่า</strong>: alumni@abac.edu / alumni1234</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sign Up Page -->
+    <div id="signUpPage" class="min-h-screen gradient-bg flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+            <!-- Language Switcher -->
+            <div class="flex justify-end mb-4">
+                <div class="flex items-center space-x-2">
+                    <button onclick="switchLoginLanguage('th')" class="signup-lang-th px-3 py-1 rounded bg-orange-600 text-white text-sm">TH</button>
+                    <button onclick="switchLoginLanguage('en')" class="signup-lang-en px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm">EN</button>
+                </div>
+            </div>
+            
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold text-gray-800 mb-2" data-th="สมัครสมาชิก" data-en="Sign Up">สมัครสมาชิก</h1>
+                <p class="text-gray-600 text-sm" data-th="กรอกข้อมูลเพื่อสร้างบัญชีใหม่" data-en="Fill in the information to create a new account">กรอกข้อมูลเพื่อสร้างบัญชีใหม่</p>
+            </div>
+            
+            <form id="signUpForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ประเภทผู้ใช้</label>
+                    <select id="userType" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                        <option value="">เลือกประเภทผู้ใช้</option>
+                        <option value="student">นักศึกษาปัจจุบัน</option>
+                        <option value="alumni">ศิษย์เก่า</option>
+                    </select>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">ชื่อ</label>
+                        <input type="text" id="firstName" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">นามสกุล</label>
+                        <input type="text" id="lastName" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">อีเมล</label>
+                    <input type="email" id="signUpEmail" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">รหัสผ่าน</label>
+                    <input type="password" id="signUpPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                </div>
+                
+                <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg font-medium hover:bg-green-700 transition duration-300">
+                    สมัครสมาชิก
+                </button>
+                
+                <div class="text-center">
+                    <a href="#" onclick="showLogin()" class="text-blue-600 hover:underline text-sm">กลับไปหน้าเข้าสู่ระบบ</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Forgot Password Page -->
+    <div id="forgotPasswordPage" class="min-h-screen gradient-bg flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+            <!-- Language Switcher -->
+            <div class="flex justify-end mb-4">
+                <div class="flex items-center space-x-2">
+                    <button onclick="switchLoginLanguage('th')" class="forgot-lang-th px-3 py-1 rounded bg-orange-600 text-white text-sm">TH</button>
+                    <button onclick="switchLoginLanguage('en')" class="forgot-lang-en px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm">EN</button>
+                </div>
+            </div>
+            
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold text-gray-800 mb-2" data-th="ลืมรหัสผ่าน" data-en="Forgot Password">ลืมรหัสผ่าน</h1>
+                <p class="text-gray-600 text-sm" data-th="กรอกอีเมลเพื่อรีเซ็ตรหัสผ่าน" data-en="Enter your email to reset password">กรอกอีเมลเพื่อรีเซ็ตรหัสผ่าน</p>
+            </div>
+            
+            <form id="forgotForm" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">อีเมล</label>
+                    <input type="email" id="forgotEmail" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                </div>
+                
+                <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition duration-300">
+                    ส่งลิงก์รีเซ็ตรหัสผ่าน
+                </button>
+                
+                <div class="text-center">
+                    <a href="#" onclick="showLogin()" class="text-blue-600 hover:underline text-sm">กลับไปหน้าเข้าสู่ระบบ</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="mainApp" class="hidden">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between items-center py-4">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                            <i class="fas fa-graduation-cap text-white"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-xl font-bold text-gray-800">Alumni Tracking System</h1>
+                            <p class="text-sm text-gray-600">คณะพยาบาลศาสตร์ มหาวิทยาลัยอัสสัมชัญ</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2">
+                            <button onclick="switchLanguage('th')" id="langTh" class="px-3 py-1 rounded bg-orange-600 text-white text-sm">TH</button>
+                            <button onclick="switchLanguage('en')" id="langEn" class="px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm">EN</button>
+                        </div>
+                        <span id="userWelcome" class="text-gray-700"></span>
+                        <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition duration-300">
+                            <i class="fas fa-sign-out-alt mr-2"></i><span data-th="ออกจากระบบ" data-en="Logout">ออกจากระบบ</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Sidebar and Content -->
+        <div class="flex">
+            <!-- Sidebar -->
+            <div class="w-64 bg-gray-800 min-h-screen">
+                <div class="p-4">
+                    <ul class="space-y-2" id="sidebarMenu">
+                        <!-- Menu items will be populated by JavaScript based on user role -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="flex-1 p-6">
+                <!-- Dashboard (Admin Only) -->
+                <div id="dashboardContent" class="hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-3xl font-bold text-gray-800" data-th="แดชบอร์ด" data-en="Dashboard">แดชบอร์ด</h2>
+                        <div class="flex space-x-2">
+                            <button onclick="refreshDashboard()" class="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition duration-300">
+                                <i class="fas fa-sync-alt mr-2"></i><span data-th="รีเฟรช" data-en="Refresh">รีเฟรช</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Overview -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                        <div class="stats-card animate-fade-in">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-600 text-sm" data-th="นักศึกษาทั้งหมด" data-en="Total Students">นักศึกษาทั้งหมด</p>
+                                    <p class="text-2xl font-bold text-orange-600">156</p>
+                                </div>
+                                <i class="fas fa-user-graduate text-orange-600 text-2xl"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="stats-card animate-fade-in" style="animation-delay: 0.1s">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-600 text-sm" data-th="ศิษย์เก่า" data-en="Alumni">ศิษย์เก่า</p>
+                                    <p class="text-2xl font-bold text-green-600">342</p>
+                                </div>
+                                <i class="fas fa-users text-green-600 text-2xl"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="stats-card animate-fade-in" style="animation-delay: 0.2s">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-600 text-sm" data-th="สอบผ่านแล้ว" data-en="Passed License">สอบผ่านแล้ว</p>
+                                    <p class="text-2xl font-bold text-purple-600">89</p>
+                                </div>
+                                <i class="fas fa-certificate text-purple-600 text-2xl"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="stats-card animate-fade-in" style="animation-delay: 0.3s">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-600 text-sm" data-th="อัตราผ่าน" data-en="Pass Rate">อัตราผ่าน</p>
+                                    <p class="text-2xl font-bold text-blue-600">78%</p>
+                                </div>
+                                <i class="fas fa-chart-line text-blue-600 text-2xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dashboard Tabs -->
+                    <div class="mb-6">
+                        <div class="border-b border-gray-200">
+                            <nav class="-mb-px flex space-x-8">
+                                <button onclick="showDashboardTab('demographics')" class="dashboard-tab active py-2 px-1 border-b-2 border-orange-500 font-medium text-sm text-orange-600">
+                                    <span data-th="ข้อมูลประชากร" data-en="Demographics">ข้อมูลประชากร</span>
+                                </button>
+                                <button onclick="showDashboardTab('work')" class="dashboard-tab py-2 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                                    <span data-th="การทำงาน" data-en="Employment">การทำงาน</span>
+                                </button>
+                                <button onclick="showDashboardTab('license')" class="dashboard-tab py-2 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                                    <span data-th="ใบประกอบวิชาชีพ" data-en="License">ใบประกอบวิชาชีพ</span>
+                                </button>
+                                <button onclick="showDashboardTab('donations')" class="dashboard-tab py-2 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                                    <span data-th="การบริจาค" data-en="Donations">การบริจาค</span>
+                                </button>
+                            </nav>
+                        </div>
+                    </div>
+
+                    <!-- Demographics Tab -->
+                    <div id="demographicsTab" class="dashboard-tab-content">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="bg-white rounded-lg card-shadow p-6 animate-slide-in">
+                                <h3 class="text-lg font-semibold mb-4" data-th="การกระจายตามเพศ" data-en="Gender Distribution">การกระจายตามเพศ</h3>
+                                <div class="chart-container">
+                                    <canvas id="genderChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6 animate-slide-in" style="animation-delay: 0.1s">
+                                <h3 class="text-lg font-semibold mb-4" data-th="การกระจายตามอายุ" data-en="Age Distribution">การกระจายตามอายุ</h3>
+                                <div class="chart-container">
+                                    <canvas id="ageChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6 animate-slide-in" style="animation-delay: 0.2s">
+                                <h3 class="text-lg font-semibold mb-4" data-th="การกระจายตามสัญชาติ" data-en="Nationality Distribution">การกระจายตามสัญชาติ</h3>
+                                <div class="chart-container">
+                                    <canvas id="nationalityChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6 animate-slide-in" style="animation-delay: 0.3s">
+                                <h3 class="text-lg font-semibold mb-4" data-th="การกระจายตามรุ่น" data-en="Class Distribution">การกระจายตามรุ่น</h3>
+                                <div class="chart-container">
+                                    <canvas id="classChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Work Tab -->
+                    <div id="workTab" class="dashboard-tab-content hidden">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="สถานะการทำงาน" data-en="Employment Status">สถานะการทำงาน</h3>
+                                <div class="chart-container">
+                                    <canvas id="workChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="การทำงานต่างประเทศ" data-en="International Work">การทำงานต่างประเทศ</h3>
+                                <div class="chart-container">
+                                    <canvas id="internationalChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="ประเภทสถานที่ทำงาน" data-en="Workplace Type">ประเภทสถานที่ทำงาน</h3>
+                                <div class="chart-container">
+                                    <canvas id="workplaceChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="เงินเดือนเฉลี่ย" data-en="Average Salary">เงินเดือนเฉลี่ย</h3>
+                                <div class="chart-container">
+                                    <canvas id="salaryChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- License Tab -->
+                    <div id="licenseTab" class="dashboard-tab-content hidden">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="อัตราการสอบผ่านรวม" data-en="Overall Pass Rate">อัตราการสอบผ่านรวม</h3>
+                                <div class="chart-container">
+                                    <canvas id="examChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="อัตราผ่านแยกตามรอบสอบ" data-en="Pass Rate by Exam Round">อัตราผ่านแยกตามรอบสอบ</h3>
+                                <div class="chart-container">
+                                    <canvas id="examRoundChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6 lg:col-span-2">
+                                <h3 class="text-lg font-semibold mb-4" data-th="อัตราผ่านแยกตาม 8 รายวิชา" data-en="Pass Rate by 8 Subjects">อัตราผ่านแยกตาม 8 รายวิชา</h3>
+                                <div class="chart-container">
+                                    <canvas id="subjectChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="เปรียบเทียบสอบครั้งแรก vs สอบซ้ำ" data-en="First-time vs Retake">เปรียบเทียบสอบครั้งแรก vs สอบซ้ำ</h3>
+                                <div class="chart-container">
+                                    <canvas id="retakeChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="วิเคราะห์ตามอายุและเพศ" data-en="Analysis by Age & Gender">วิเคราะห์ตามอายุและเพศ</h3>
+                                <div class="chart-container">
+                                    <canvas id="ageGenderChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Donations Tab -->
+                    <div id="donationsTab" class="dashboard-tab-content hidden">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="ยอดบริจาครวม" data-en="Total Donations">ยอดบริจาครวม</h3>
+                                <div class="text-center py-8">
+                                    <div class="text-4xl font-bold text-green-600 mb-2">฿2,450,000</div>
+                                    <div class="text-gray-600" data-th="บาท (ปีงบประมาณ 2567)" data-en="THB (Fiscal Year 2024)">บาท (ปีงบประมาณ 2567)</div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="จำนวนผู้บริจาค" data-en="Number of Donors">จำนวนผู้บริจาค</h3>
+                                <div class="chart-container">
+                                    <canvas id="donorChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="วัตถุประสงค์การบริจาค" data-en="Donation Purposes">วัตถุประสงค์การบริจาค</h3>
+                                <div class="chart-container">
+                                    <canvas id="donationPurposeChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4" data-th="แนวโน้มการบริจาครายเดือน" data-en="Monthly Donation Trend">แนวโน้มการบริจาครายเดือน</h3>
+                                <div class="chart-container">
+                                    <canvas id="donationTrendChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Profile Management -->
+                <div id="profileContent" class="hidden">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6">ข้อมูลส่วนตัว</h2>
+                    
+                    <!-- Admin User Selection -->
+                    <div id="adminUserSelection" class="bg-white rounded-lg card-shadow p-6 mb-6 hidden">
+                        <h3 class="text-lg font-semibold mb-4 text-orange-600">เลือกผู้ใช้ที่ต้องการแก้ไข</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">ค้นหาผู้ใช้</label>
+                                <input type="text" id="userSearch" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500" placeholder="ค้นหาด้วยชื่อ, รหัสนักศึกษา, หรืออีเมล">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">ประเภทผู้ใช้</label>
+                                <select id="userTypeFilter" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500">
+                                    <option value="">ทั้งหมด</option>
+                                    <option value="student">นักศึกษาปัจจุบัน</option>
+                                    <option value="alumni">ศิษย์เก่า</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- User List -->
+                        <div class="mt-6">
+                            <h4 class="font-medium mb-3">รายชื่อผู้ใช้</h4>
+                            <div id="userList" class="space-y-2 max-h-60 overflow-y-auto">
+                                <!-- User list will be populated by JavaScript -->
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 p-4 bg-blue-50 rounded-lg">
+                            <p class="text-sm text-blue-700">
+                                <i class="fas fa-info-circle mr-2"></i>
+                                เลือกผู้ใช้จากรายการด้านบนเพื่อแก้ไขข้อมูล หรือสร้างโปรไฟล์ใหม่ด้านล่าง
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg card-shadow p-6">
+                        <form id="profileForm" class="space-y-6">
+                            <!-- Profile Picture -->
+                            <div class="flex items-center space-x-6">
+                                <div class="relative">
+                                    <img id="profileImage" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23e5e7eb'/%3E%3Cpath d='M50 45c8.284 0 15-6.716 15-15s-6.716-15-15-15-15 6.716-15 15 6.716 15 15 15zm0 10c-16.569 0-30 13.431-30 30v10h60v-10c0-16.569-13.431-30-30-30z' fill='%23d1d5db'/%3E%3C/svg%3E" class="w-24 h-24 rounded-full object-cover border-4 border-gray-200">
+                                    <label for="profileImageInput" class="absolute bottom-0 right-0 bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center cursor-pointer hover:bg-blue-700">
+                                        <i class="fas fa-camera text-xs"></i>
+                                    </label>
+                                    <input type="file" id="profileImageInput" class="hidden" accept="image/*">
+                                </div>
+                                <div>
+                                    <h3 class="text-lg font-semibold">รูปโปรไฟล์</h3>
+                                    <p class="text-gray-600 text-sm">คลิกที่ไอคอนกล้องเพื่ออัปโหลดรูปภาพ</p>
+                                </div>
+                            </div>
+
+                            <!-- Personal Information -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">คำนำหน้า</label>
+                                    <select id="title" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        <option value="">เลือกคำนำหน้า</option>
+                                        <option value="นาย">นาย</option>
+                                        <option value="นางสาว">นางสาว</option>
+                                        <option value="นาง">นาง</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">รหัสนักศึกษา/ศิษย์เก่า</label>
+                                    <div class="flex">
+                                        <span id="studentIdPrefix" class="px-4 py-3 bg-gray-100 border border-r-0 border-gray-300 rounded-l-lg text-gray-600 font-mono"></span>
+                                        <input type="text" id="studentId" class="flex-1 px-4 py-3 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-blue-500 font-mono" placeholder="1234567" maxlength="7">
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-1">กรอกเฉพาะตัวเลข 7 หลัก</p>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">ชื่อ (ภาษาไทย)</label>
+                                    <input type="text" id="firstNameTh" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">นามสกุล (ภาษาไทย)</label>
+                                    <input type="text" id="lastNameTh" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">ชื่อ (ภาษาอังกฤษ)</label>
+                                    <input type="text" id="firstNameEn" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">นามสกุล (ภาษาอังกฤษ)</label>
+                                    <input type="text" id="lastNameEn" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">รุ่นที่จบ</label>
+                                    <input type="text" id="graduationClass" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="เช่น LXVI, 66, รุ่นที่ 66">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">อาจารย์ที่ปรึกษา</label>
+                                    <input type="text" id="advisor" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">วันเกิด</label>
+                                    <input type="date" id="birthDate" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">เพศ</label>
+                                    <select id="gender" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        <option value="">เลือกเพศ</option>
+                                        <option value="ชาย">ชาย</option>
+                                        <option value="หญิง">หญิง</option>
+                                        <option value="อื่นๆ">อื่นๆ</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">ประเทศที่เกิด</label>
+                                    <input type="text" id="birthCountry" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">สัญชาติ</label>
+                                    <input type="text" id="nationality" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">เชื้อชาติ</label>
+                                    <input type="text" id="ethnicity" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">อีเมล</label>
+                                    <input type="email" id="email" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">เบอร์โทรศัพท์</label>
+                                    <input type="tel" id="phone" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">เกรดเฉลี่ยสะสม (GPAX)</label>
+                                    <input type="number" id="gpax" step="0.01" min="0" max="4" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                            
+                            <!-- Address -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">ที่อยู่ปัจจุบัน</label>
+                                <textarea id="address" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                            </div>
+                            
+                            <!-- Emergency Contact -->
+                            <div class="border-t pt-6">
+                                <h3 class="text-lg font-semibold mb-4">ข้อมูลผู้ติดต่อกรณีฉุกเฉิน</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">ชื่อ-นามสกุล</label>
+                                        <input type="text" id="emergencyName" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">ความสัมพันธ์</label>
+                                        <input type="text" id="emergencyRelation" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">เบอร์โทรศัพท์</label>
+                                        <input type="tel" id="emergencyPhone" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Additional Information -->
+                            <div class="border-t pt-6 space-y-6">
+                                <h3 class="text-lg font-semibold">ข้อมูลเพิ่มเติม</h3>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">ประวัติการได้รับรางวัล</label>
+                                    <textarea id="awards" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="ระบุรางวัลที่เคยได้รับ (ถ้ามี)"></textarea>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">แผนการทำงานในอนาคต</label>
+                                    <select id="careerPlanSelect" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2" onchange="toggleCareerPlanOther()">
+                                        <option value="">เลือกแผนการทำงาน</option>
+                                        <option value="hospital_public">ทำงานโรงพยาบาลรัฐ</option>
+                                        <option value="hospital_private">ทำงานโรงพยาบาลเอกชน</option>
+                                        <option value="clinic">ทำงานคลินิก</option>
+                                        <option value="community_health">ทำงานด้านสาธารณสุขชุมชน</option>
+                                        <option value="home_care">ทำงานด้านการดูแลผู้ป่วยที่บ้าน</option>
+                                        <option value="elderly_care">ทำงานด้านการดูแลผู้สูงอายุ</option>
+                                        <option value="occupational_health">ทำงานด้านอาชีวอนามัย</option>
+                                        <option value="education">ทำงานด้านการศึกษา/อาจารย์</option>
+                                        <option value="research">ทำงานด้านการวิจัย</option>
+                                        <option value="entrepreneur">ประกอบธุรกิจส่วนตัว</option>
+                                        <option value="international">ทำงานต่างประเทศ</option>
+                                        <option value="other">อื่นๆ</option>
+                                    </select>
+                                    <textarea id="careerPlan" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 hidden" placeholder="ระบุแผนการทำงานอื่นๆ"></textarea>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">แผนการศึกษาต่อ</label>
+                                    <select id="studyPlanSelect" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2" onchange="toggleStudyPlanOther()">
+                                        <option value="">เลือกแผนการศึกษาต่อ</option>
+                                        <option value="no_plan">ไม่มีแผนศึกษาต่อ</option>
+                                        <option value="master_nursing">ปริญญาโท พยาบาลศาสตร์</option>
+                                        <option value="master_public_health">ปริญญาโท สาธารณสุขศาสตร์</option>
+                                        <option value="master_health_admin">ปริญญาโท การบริหารสุขภาพ</option>
+                                        <option value="master_midwifery">ปริญญาโท การผดุงครรภ์</option>
+                                        <option value="master_mental_health">ปริญญาโท สุขภาพจิต</option>
+                                        <option value="master_community">ปริญญาโท พยาบาลชุมชน</option>
+                                        <option value="master_critical_care">ปริญญาโท พยาบาลผู้ป่วยวิกฤต</option>
+                                        <option value="master_pediatric">ปริญญาโท พยาบาลเด็ก</option>
+                                        <option value="master_geriatric">ปริญญาโท พยาบาลผู้สูงอายุ</option>
+                                        <option value="phd_nursing">ปริญญาเอก พยาบาลศาสตร์</option>
+                                        <option value="certificate">หลักสูตรประกาศนียบัตร</option>
+                                        <option value="international">ศึกษาต่อต่างประเทศ</option>
+                                        <option value="other">อื่นๆ</option>
+                                    </select>
+                                    <textarea id="studyPlan" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 hidden" placeholder="ระบุแผนการศึกษาต่ออื่นๆ"></textarea>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">แผนการไปทำงานต่างประเทศ</label>
+                                    <select id="internationalPlanSelect" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2" onchange="toggleInternationalPlanOther()">
+                                        <option value="">เลือกแผนการทำงานต่างประเทศ</option>
+                                        <option value="no_plan">ไม่มีแผนไปทำงานต่างประเทศ</option>
+                                        <option value="usa">สหรัฐอเมริกา</option>
+                                        <option value="canada">แคนาดา</option>
+                                        <option value="australia">ออสเตรเลีย</option>
+                                        <option value="uk">สหราชอาณาจักร</option>
+                                        <option value="germany">เยอรมนี</option>
+                                        <option value="netherlands">เนเธอร์แลนด์</option>
+                                        <option value="sweden">สวีเดน</option>
+                                        <option value="norway">นอร์เวย์</option>
+                                        <option value="singapore">สิงคโปร์</option>
+                                        <option value="japan">ญี่ปุ่น</option>
+                                        <option value="south_korea">เกาหลีใต้</option>
+                                        <option value="uae">สหรัฐอาหรับเอมิเรตส์</option>
+                                        <option value="saudi_arabia">ซาอุดีอาระเบีย</option>
+                                        <option value="qatar">กาตาร์</option>
+                                        <option value="kuwait">คูเวต</option>
+                                        <option value="new_zealand">นิวซีแลนด์</option>
+                                        <option value="other">ประเทศอื่นๆ</option>
+                                    </select>
+                                    <textarea id="internationalPlan" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 hidden" placeholder="ระบุประเทศหรือแผนการทำงานต่างประเทศอื่นๆ"></textarea>
+                                </div>
+                                
+                                <div>
+                                    <label class="flex items-center space-x-2">
+                                        <input type="checkbox" id="willTakeThaiLicense" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span class="text-sm text-gray-700">จะสอบใบประกอบวิชาชีพของไทย</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="flex justify-end">
+                                <button type="submit" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition duration-300">
+                                    <i class="fas fa-save mr-2"></i>บันทึกข้อมูล
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- License Tracking -->
+                <div id="licenseContent" class="hidden">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6" data-th="ติดตามใบประกอบวิชาชีพ" data-en="License Tracking">ติดตามใบประกอบวิชาชีพ</h2>
+                    
+                    <!-- Progress Overview -->
+                    <div class="bg-white rounded-lg card-shadow p-6 mb-6">
+                        <h3 class="text-lg font-semibold mb-4" data-th="ความคืบหน้าการสอบ" data-en="Exam Progress">ความคืบหน้าการสอบ</h3>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-medium text-gray-700" data-th="วิชาที่สอบผ่านแล้ว" data-en="Subjects Passed">วิชาที่สอบผ่านแล้ว</span>
+                            <span id="progressText" class="text-sm font-medium text-orange-600">0/8</span>
+                        </div>
+                        <div class="exam-progress">
+                            <div id="progressBar" class="progress-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2" id="subjectStatus">
+                            <!-- Subject status will be populated by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <!-- Add New Exam -->
+                    <div class="bg-white rounded-lg card-shadow p-6 mb-6">
+                        <h3 class="text-lg font-semibold mb-4" data-th="เพิ่มข้อมูลการสอบใหม่" data-en="Add New Exam">เพิ่มข้อมูลการสอบใหม่</h3>
+                        
+                        <!-- Instructions -->
+                        <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                            <h4 class="font-medium text-blue-800 mb-2">
+                                <i class="fas fa-info-circle mr-2"></i>วิธีการใช้งาน
+                            </h4>
+                            <ul class="text-sm text-blue-700 space-y-1">
+                                <li>• <strong>สอบผ่าน:</strong> เลือก "ผ่าน" สำหรับวิชาที่สอบผ่านในรอบนี้</li>
+                                <li>• <strong>สอบไม่ผ่าน:</strong> เลือก "ไม่ผ่าน" สำหรับวิชาที่สอบแต่ไม่ผ่าน</li>
+                                <li>• <strong>ไม่ได้สอบ:</strong> เว้นว่างไว้สำหรับวิชาที่ไม่ได้สอบในรอบนี้</li>
+                                <li>• สามารถเพิ่มข้อมูลการสอบหลายรอบได้ วิชาที่ยังไม่ผ่านจะยังแสดงในรอบถัดไป</li>
+                            </ul>
+                        </div>
+                        
+                        <form id="examForm" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">ครั้งที่</label>
+                                    <input type="number" id="examRound" min="1" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">รอบที่</label>
+                                    <select id="examSession" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                                        <option value="">เลือกรอบ</option>
+                                        <option value="1">รอบที่ 1</option>
+                                        <option value="2">รอบที่ 2</option>
+                                        <option value="3">รอบที่ 3</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">ปีที่สอบ</label>
+                                    <input type="number" id="examYear" min="2020" max="2030" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                                </div>
+                            </div>
+                            
+                            <!-- Exam Results -->
+                            <div class="border-t pt-4">
+                                <h4 class="font-medium mb-4">ผลการสอบแต่ละวิชา</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="examSubjects">
+                                    <!-- Subjects will be populated by JavaScript -->
+                                </div>
+                                
+                                <!-- Real-time Progress Display -->
+                                <div class="mt-4 p-4 bg-blue-50 rounded-lg">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-sm font-medium text-blue-700">ความคืบหน้าการสอบครั้งนี้</span>
+                                        <span id="currentExamProgress" class="text-sm font-bold text-blue-600">0/8</span>
+                                    </div>
+                                    <div class="exam-progress">
+                                        <div id="currentExamProgressBar" class="progress-bar" style="width: 0%"></div>
+                                    </div>
+                                    <p class="text-xs text-blue-600 mt-2" id="progressMessage">เลือกผลการสอบเพื่อดูความคืบหน้า</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Evidence Upload -->
+                            <div class="border-t pt-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">อัปโหลดหลักฐานผลสอบ</label>
+                                <input type="file" id="examEvidence" accept="image/*" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <p class="text-sm text-gray-500 mt-1">รองรับไฟล์รูปภาพ (JPG, PNG)</p>
+                            </div>
+                            
+                            <button type="submit" class="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition duration-300">
+                                <i class="fas fa-plus mr-2"></i>เพิ่มข้อมูลการสอบ
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Exam History -->
+                    <div class="bg-white rounded-lg card-shadow p-6">
+                        <h3 class="text-lg font-semibold mb-4">ประวัติการสอบ</h3>
+                        <div id="examHistory" class="space-y-4">
+                            <!-- Exam history will be populated by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <!-- License Information (shown when all subjects passed) -->
+                    <div id="licenseInfo" class="bg-green-50 border border-green-200 rounded-lg p-6 mt-6 hidden">
+                        <h3 class="text-lg font-semibold text-green-800 mb-4">ข้อมูลใบประกอบวิชาชีพ</h3>
+                        <form id="licenseForm" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">เลขที่สมาชิกสภาการพยาบาล</label>
+                                    <input type="text" id="memberNumber" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">เลขที่ใบประกอบวิชาชีพ</label>
+                                    <input type="text" id="licenseNumber" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">วันที่ออกบัตร</label>
+                                    <input type="date" id="issueDate" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">วันที่ออกใบอนุญาต</label>
+                                    <input type="date" id="permitDate" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">วันหมดอายุ</label>
+                                    <input type="date" id="expiryDate" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">อัปโหลดใบประกอบวิชาชีพ (PDF)</label>
+                                <input type="file" id="licensePdf" accept=".pdf" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                            </div>
+                            
+                            <button type="submit" class="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition duration-300">
+                                <i class="fas fa-save mr-2"></i>บันทึกข้อมูลใบประกอบวิชาชีพ
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Donation Page -->
+                <div id="donationContent" class="hidden">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6" data-th="การบริจาค" data-en="Donation">การบริจาค</h2>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Donation Form -->
+                        <div class="bg-white rounded-lg card-shadow p-6">
+                            <h3 class="text-xl font-semibold mb-4 text-orange-600" data-th="แจ้งความประสงค์บริจาค" data-en="Donation Intent">แจ้งความประสงค์บริจาค</h3>
+                            
+                            <form id="donationForm" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2" data-th="จำนวนเงินที่ต้องการบริจาค" data-en="Donation Amount">จำนวนเงินที่ต้องการบริจาค</label>
+                                    <div class="relative">
+                                        <span class="absolute left-3 top-3 text-gray-500">฿</span>
+                                        <input type="number" id="donationAmount" class="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500" placeholder="0.00" min="1" required>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2" data-th="วัตถุประสงค์การบริจาค" data-en="Donation Purpose">วัตถุประสงค์การบริจาค</label>
+                                    <select id="donationPurpose" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500" required>
+                                        <option value="">เลือกวัตถุประสงค์</option>
+                                        <option value="scholarship" data-th="ทุนการศึกษา" data-en="Scholarship">ทุนการศึกษา</option>
+                                        <option value="equipment" data-th="อุปกรณ์การเรียนการสอน" data-en="Teaching Equipment">อุปกรณ์การเรียนการสอน</option>
+                                        <option value="building" data-th="พัฒนาอาคารสถานที่" data-en="Building Development">พัฒนาอาคารสถานที่</option>
+                                        <option value="research" data-th="สนับสนุนการวิจัย" data-en="Research Support">สนับสนุนการวิจัย</option>
+                                        <option value="general" data-th="กิจกรรมทั่วไป" data-en="General Activities">กิจกรรมทั่วไป</option>
+                                        <option value="other" data-th="อื่นๆ" data-en="Others">อื่นๆ</option>
+                                    </select>
+                                </div>
+                                
+                                <div id="otherPurposeDiv" class="hidden">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2" data-th="ระบุวัตถุประสงค์อื่นๆ" data-en="Specify Other Purpose">ระบุวัตถุประสงค์อื่นๆ</label>
+                                    <textarea id="otherPurpose" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"></textarea>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2" data-th="ข้อความเพิ่มเติม" data-en="Additional Message">ข้อความเพิ่มเติม</label>
+                                    <textarea id="donationMessage" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500" placeholder="ข้อความที่ต้องการส่งถึงคณะ (ไม่บังคับ)"></textarea>
+                                </div>
+                                
+                                <!-- Tax Receipt Information -->
+                                <div class="border-t pt-4">
+                                    <h4 class="font-medium mb-3" data-th="ข้อมูลสำหรับออกใบกำกับภาษี" data-en="Tax Receipt Information">ข้อมูลสำหรับออกใบกำกับภาษี</h4>
+                                    
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2" data-th="ชื่อ-นามสกุล/ชื่อบริษัท" data-en="Name/Company Name">ชื่อ-นามสกุล/ชื่อบริษัท</label>
+                                            <input type="text" id="taxName" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500" required>
+                                        </div>
+                                        
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2" data-th="เลขประจำตัวผู้เสียภาษี" data-en="Tax ID">เลขประจำตัวผู้เสียภาษี</label>
+                                            <input type="text" id="taxId" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500" required>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2" data-th="ที่อยู่สำหรับส่งใบกำกับภาษี" data-en="Address for Tax Receipt">ที่อยู่สำหรับส่งใบกำกับภาษี</label>
+                                        <textarea id="taxAddress" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500" required></textarea>
+                                    </div>
+                                </div>
+                                
+                                <!-- Payment Slip Upload -->
+                                <div class="border-t pt-4">
+                                    <h4 class="font-medium mb-3" data-th="อัปโหลดสลิปการโอนเงิน" data-en="Upload Payment Slip">อัปโหลดสลิปการโอนเงิน</h4>
+                                    
+                                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                                        <input type="file" id="paymentSlip" accept="image/*,.pdf" class="hidden" required>
+                                        <div id="uploadArea" onclick="document.getElementById('paymentSlip').click()" class="cursor-pointer">
+                                            <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-2"></i>
+                                            <p class="text-gray-600" data-th="คลิกเพื่ออัปโหลดสลิปการโอนเงิน" data-en="Click to upload payment slip">คลิกเพื่ออัปโหลดสลิปการโอนเงิน</p>
+                                            <p class="text-sm text-gray-500" data-th="รองรับไฟล์ JPG, PNG, PDF" data-en="Supports JPG, PNG, PDF">รองรับไฟล์ JPG, PNG, PDF</p>
+                                        </div>
+                                        <div id="uploadPreview" class="hidden mt-4">
+                                            <img id="slipPreview" class="max-w-full h-32 object-contain mx-auto rounded">
+                                            <p id="fileName" class="text-sm text-gray-600 mt-2"></p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button type="submit" id="submitDonation" class="w-full bg-gray-400 text-white py-3 rounded-lg font-medium cursor-not-allowed" disabled>
+                                    <i class="fas fa-heart mr-2"></i><span data-th="ยืนยันการบริจาค" data-en="Confirm Donation">ยืนยันการบริจาค</span>
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Bank Information & Tax Benefits -->
+                        <div class="space-y-6">
+                            <!-- Bank Information -->
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-xl font-semibold mb-4 text-orange-600" data-th="ข้อมูลการโอนเงิน" data-en="Bank Transfer Information">ข้อมูลการโอนเงิน</h3>
+                                
+                                <div class="space-y-4">
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <div class="flex items-center space-x-3 mb-2">
+                                            <div class="w-8 h-8 bg-purple-600 rounded flex items-center justify-center">
+                                                <i class="fas fa-university text-white text-sm"></i>
+                                            </div>
+                                            <div>
+                                                <p class="font-medium">ธนาคารไทยพาณิชย์</p>
+                                                <p class="text-sm text-gray-600">สาขามหาวิทยาลัยอัสสัมชัญ</p>
+                                            </div>
+                                        </div>
+                                        <div class="ml-11">
+                                            <p class="text-sm text-gray-600" data-th="ชื่อบัญชี" data-en="Account Name">ชื่อบัญชี</p>
+                                            <p class="font-medium">คณะพยาบาลศาสตร์ มหาวิทยาลัยอัสสัมชัญ</p>
+                                            <p class="text-sm text-gray-600 mt-1" data-th="เลขที่บัญชี" data-en="Account Number">เลขที่บัญชี</p>
+                                            <p class="font-mono text-lg font-bold text-purple-600">123-4-56789-0</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <div class="flex items-center space-x-3 mb-2">
+                                            <div class="w-8 h-8 bg-green-600 rounded flex items-center justify-center">
+                                                <i class="fas fa-university text-white text-sm"></i>
+                                            </div>
+                                            <div>
+                                                <p class="font-medium">ธนาคารกสิกรไทย</p>
+                                                <p class="text-sm text-gray-600">สาขาห้วยขวาง</p>
+                                            </div>
+                                        </div>
+                                        <div class="ml-11">
+                                            <p class="text-sm text-gray-600" data-th="ชื่อบัญชี" data-en="Account Name">ชื่อบัญชี</p>
+                                            <p class="font-medium">คณะพยาบาลศาสตร์ มหาวิทยาลัยอัสสัมชัญ</p>
+                                            <p class="text-sm text-gray-600 mt-1" data-th="เลขที่บัญชี" data-en="Account Number">เลขที่บัญชี</p>
+                                            <p class="font-mono text-lg font-bold text-green-600">987-6-54321-0</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Tax Benefits -->
+                            <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg card-shadow p-6">
+                                <h3 class="text-xl font-semibold mb-4 text-orange-600" data-th="สิทธิประโยชน์ทางภาษี" data-en="Tax Benefits">สิทธิประโยชน์ทางภาษี</h3>
+                                
+                                <div class="space-y-3">
+                                    <div class="flex items-start space-x-3">
+                                        <i class="fas fa-check-circle text-green-500 mt-1"></i>
+                                        <p class="text-sm" data-th="สามารถนำไปลดหย่อนภาษีได้ 100% ของจำนวนเงินบริจาค" data-en="100% tax deductible donation">สามารถนำไปลดหย่อนภาษีได้ 100% ของจำนวนเงินบริจาค</p>
+                                    </div>
+                                    <div class="flex items-start space-x-3">
+                                        <i class="fas fa-check-circle text-green-500 mt-1"></i>
+                                        <p class="text-sm" data-th="ไม่เกิน 10% ของเงินได้สุทธิ หรือไม่เกิน 200,000 บาท" data-en="Not exceeding 10% of net income or 200,000 THB">ไม่เกิน 10% ของเงินได้สุทธิ หรือไม่เกิน 200,000 บาท</p>
+                                    </div>
+                                    <div class="flex items-start space-x-3">
+                                        <i class="fas fa-check-circle text-green-500 mt-1"></i>
+                                        <p class="text-sm" data-th="ใบกำกับภาษีจะถูกส่งภายใน 30 วันหลังจากได้รับการบริจาค" data-en="Tax receipt will be sent within 30 days">ใบกำกับภาษีจะถูกส่งภายใน 30 วันหลังจากได้รับการบริจาค</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-4 p-3 bg-white rounded border-l-4 border-orange-500">
+                                    <p class="text-sm font-medium text-orange-700" data-th="หมายเหตุ: การบริจาคให้สถาบันการศึกษาเป็นการกุศลที่ได้รับการยกเว้นภาษี ตามมาตรา 47(7) แห่งประมวลรัษฎากร" data-en="Note: Donations to educational institutions are tax-exempt charitable contributions under Section 47(7) of the Revenue Code">หมายเหตุ: การบริจาคให้สถาบันการศึกษาเป็นการกุศลที่ได้รับการยกเว้นภาษี ตามมาตรา 47(7) แห่งประมวลรัษฎากร</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Contact Information -->
+                            <div class="bg-white rounded-lg card-shadow p-6">
+                                <h3 class="text-xl font-semibold mb-4 text-orange-600" data-th="ติดต่อสอบถาม" data-en="Contact Information">ติดต่อสอบถาม</h3>
+                                
+                                <div class="space-y-3">
+                                    <div class="flex items-center space-x-3">
+                                        <i class="fas fa-phone text-orange-600"></i>
+                                        <span class="text-sm">02-719-1234 ต่อ 5678</span>
+                                    </div>
+                                    <div class="flex items-center space-x-3">
+                                        <i class="fas fa-envelope text-orange-600"></i>
+                                        <span class="text-sm">donation@nursing.au.edu</span>
+                                    </div>
+                                    <div class="flex items-center space-x-3">
+                                        <i class="fas fa-clock text-orange-600"></i>
+                                        <span class="text-sm" data-th="จันทร์-ศุกร์ 8:30-16:30 น." data-en="Mon-Fri 8:30-16:30">จันทร์-ศุกร์ 8:30-16:30 น.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Virtual ID Card -->
+                <div id="idCardContent" class="hidden">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6" data-th="บัตรประจำตัวเสมือน" data-en="Virtual ID Card">บัตรประจำตัวเสมือน</h2>
+                    
+                    <!-- Admin User Selection for ID Card -->
+                    <div id="adminIdCardSelection" class="bg-white rounded-lg card-shadow p-6 mb-6 hidden">
+                        <h3 class="text-lg font-semibold mb-4 text-orange-600">เลือกผู้ใช้เพื่อดูบัตรประจำตัว</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">ค้นหาผู้ใช้</label>
+                                <input type="text" id="idCardUserSearch" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500" placeholder="ค้นหาด้วยชื่อ, รหัสนักศึกษา, หรืออีเมล">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">ประเภทผู้ใช้</label>
+                                <select id="idCardUserTypeFilter" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500">
+                                    <option value="">ทั้งหมด</option>
+                                    <option value="student">นักศึกษาปัจจุบัน</option>
+                                    <option value="alumni">ศิษย์เก่า</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-6">
+                            <h4 class="font-medium mb-3">รายชื่อผู้ใช้</h4>
+                            <div id="idCardUserList" class="space-y-2 max-h-60 overflow-y-auto">
+                                <!-- User list will be populated by JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- ID Card Display -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <!-- Front Side -->
+                        <div class="text-center">
+                            <h3 class="text-xl font-semibold mb-4 text-gray-800">ด้านหน้า</h3>
+                            <div class="relative inline-block">
+                                <div id="virtualIdCardFront" class="id-card text-white p-8 w-80 h-48 relative transform hover:scale-105 transition-transform duration-300">
+                                    <!-- University Logo -->
+                                    <div class="absolute top-2 left-2">
+                                        <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                                            <i class="fas fa-graduation-cap text-white text-sm"></i>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Header -->
+                                    <div class="text-center mb-3">
+                                        <h4 class="text-sm font-bold">ASSUMPTION UNIVERSITY</h4>
+                                        <p class="text-xs opacity-90">Faculty of Nursing Science</p>
+                                        <p class="text-xs opacity-75">คณะพยาบาลศาสตร์</p>
+                                    </div>
+                                    
+                                    <!-- Main Content -->
+                                    <div class="flex items-center space-x-3">
+                                        <img id="cardProfileImageFront" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23FFFFFF' fill-opacity='0.2'/%3E%3Cpath d='M50 30c5.523 0 10 4.477 10 10s-4.477 10-10 10-10-4.477-10-10 4.477-10 10-10zm0 25c11.046 0 20 8.954 20 20v5H30v-5c0-11.046 8.954-20 20-20z' fill='%23FFFFFF'/%3E%3C/svg%3E" class="w-16 h-16 rounded-lg object-cover border-2 border-white shadow-lg">
+                                        <div class="flex-1 text-left">
+                                            <h5 id="cardNameFront" class="text-sm font-bold">นางสาวสมใจ ใจดี</h5>
+                                            <p id="cardNameEnFront" class="text-xs opacity-90">Miss Somjai Jaidee</p>
+                                            <p id="cardStudentIdFront" class="text-xs opacity-75 font-mono">BLNSAL6512345</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Footer -->
+                                    <div class="absolute bottom-2 left-2 right-2 flex justify-between items-end">
+                                        <div>
+                                            <p id="cardClassFront" class="text-xs opacity-75">Class LXV</p>
+                                            <p id="cardStatusFront" class="text-xs opacity-75">Alumni</p>
+                                        </div>
+                                        <div class="text-xs opacity-75">
+                                            <p>Valid ID</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Back Side -->
+                        <div class="text-center">
+                            <h3 class="text-xl font-semibold mb-4 text-gray-800">ด้านหลัง</h3>
+                            <div class="relative inline-block">
+                                <div id="virtualIdCardBack" class="id-card text-white p-8 w-80 h-48 relative transform hover:scale-105 transition-transform duration-300">
+                                    <!-- QR Code Section -->
+                                    <div class="flex justify-center mb-4">
+                                        <div id="qrCodeContainer" class="bg-white p-3 rounded-lg shadow-lg">
+                                            <canvas width="80" height="80" style="display: block;"></canvas>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Information -->
+                                    <div class="text-center space-y-1">
+                                        <p class="text-xs opacity-90">Scan for verification</p>
+                                        <p class="text-xs opacity-75">สแกนเพื่อตรวจสอบ</p>
+                                        <div class="border-t border-white border-opacity-30 my-2"></div>
+                                        <p id="cardEmailBack" class="text-xs opacity-75">somjai@example.com</p>
+                                        <p id="cardPhoneBack" class="text-xs opacity-75">+66 81 234 5678</p>
+                                    </div>
+                                    
+                                    <!-- Footer -->
+                                    <div class="absolute bottom-2 left-2 right-2 text-center">
+                                        <p class="text-xs opacity-60">© 2024 Assumption University</p>
+                                        <p class="text-xs opacity-60">This card is property of AU</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Card Actions -->
+                    <div class="text-center mt-8 space-x-4">
+                        <button onclick="downloadIdCard()" class="bg-orange-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-700 transition duration-300">
+                            <i class="fas fa-download mr-2"></i><span data-th="ดาวน์โหลดบัตร" data-en="Download Card">ดาวน์โหลดบัตร</span>
+                        </button>
+                        <button onclick="printIdCard()" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition duration-300">
+                            <i class="fas fa-print mr-2"></i><span data-th="พิมพ์บัตร" data-en="Print Card">พิมพ์บัตร</span>
+                        </button>
+                        <button onclick="shareIdCard()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition duration-300">
+                            <i class="fas fa-share-alt mr-2"></i><span data-th="แชร์บัตร" data-en="Share Card">แชร์บัตร</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Card Information -->
+                    <div class="mt-8 bg-white rounded-lg card-shadow p-6">
+                        <h3 class="text-lg font-semibold mb-4 text-gray-800">ข้อมูลบัตรประจำตัว</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h4 class="font-medium text-gray-700 mb-2">ข้อมูลส่วนตัว</h4>
+                                <div class="space-y-2 text-sm text-gray-600">
+                                    <p><span class="font-medium">ชื่อ-นามสกุล:</span> <span id="cardInfoName">นางสาวสมใจ ใจดี</span></p>
+                                    <p><span class="font-medium">ชื่อ (อังกฤษ):</span> <span id="cardInfoNameEn">Miss Somjai Jaidee</span></p>
+                                    <p><span class="font-medium">รหัสนักศึกษา:</span> <span id="cardInfoStudentId">BLNSAL6512345</span></p>
+                                    <p><span class="font-medium">รุ่นที่จบ:</span> <span id="cardInfoClass">รุ่น LXV</span></p>
+                                    <p><span class="font-medium">สถานะ:</span> <span id="cardInfoStatus">ศิษย์เก่า</span></p>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 class="font-medium text-gray-700 mb-2">ข้อมูลติดต่อ</h4>
+                                <div class="space-y-2 text-sm text-gray-600">
+                                    <p><span class="font-medium">อีเมล:</span> <span id="cardInfoEmail">somjai@example.com</span></p>
+                                    <p><span class="font-medium">เบอร์โทร:</span> <span id="cardInfoPhone">+66 81 234 5678</span></p>
+                                    <p><span class="font-medium">วันที่ออกบัตร:</span> <span id="cardInfoIssueDate">15 มกราคม 2567</span></p>
+                                    <p><span class="font-medium">วันหมดอายุ:</span> <span id="cardInfoExpiryDate">15 มกราคม 2570</span></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentUser = null;
+        
+        // Demo users for testing (will be replaced by Google Sheets data)
+        const demoUsers = [
+            {
+                email: 'admin@abac.edu',
+                password: 'admin1234',
+                role: 'admin',
+                name: 'ผู้ดูแลระบบ',
+                userType: 'admin'
+            },
+            {
+                email: 'student@abac.edu',
+                password: 'student1234',
+                role: 'student',
+                name: 'นักศึกษา',
+                userType: 'student'
+            },
+            {
+                email: 'alumni@abac.edu',
+                password: 'alumni1234',
+                role: 'alumni',
+                name: 'ศิษย์เก่า',
+                userType: 'alumni'
+            }
+        ];
+        
+        let examSubjects = [
+            'การผดุงครรภ์',
+            'การพยาบาลมารดาและทารก',
+            'การพยาบาลเด็กและวัยรุ่น',
+            'การพยาบาลผู้ใหญ่',
+            'การพยาบาลผู้สูงอายุ',
+            'การพยาบาลสุขภาพจิตและจิตเวชศาสตร์',
+            'การพยาบาลอนามัยชุมชนและการรักษาพยาบาลขั้นต้น',
+            'กฎหมายว่าด้วยวิชาชีพการพยาบาลฯ'
+        ];
+
+        // Function to get passed subjects from localStorage
+        function getPassedSubjects() {
+            if (!currentUser) return [];
+            const userKey = `passedSubjects_${currentUser.email}`;
+            return JSON.parse(localStorage.getItem(userKey) || '[]');
+        }
+
+        // Function to save passed subjects to localStorage
+        function savePassedSubjects(passedSubjects) {
+            if (!currentUser) return;
+            const userKey = `passedSubjects_${currentUser.email}`;
+            localStorage.setItem(userKey, JSON.stringify(passedSubjects));
+        }
+
+        // Google Sheets integration - no demo users needed
+
+        // Initialize application
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+
+        function initializeApp() {
+            // Check if user is already logged in
+            const savedUser = localStorage.getItem('currentUser');
+            if (savedUser) {
+                currentUser = JSON.parse(savedUser);
+                showMainApp();
+            }
+
+            // Setup form handlers
+            setupFormHandlers();
+            
+            // Setup profile image upload
+            setupProfileImageUpload();
+            
+            // Generate exam subjects form
+            generateExamSubjectsForm();
+            
+            // Setup donation form
+            setupDonationForm();
+            
+            // Update exam progress
+            updateExamProgress();
+        }
+
+        function setupFormHandlers() {
+            // Login form
+            document.getElementById('loginForm').addEventListener('submit', handleLogin);
+            
+            // Sign up form
+            document.getElementById('signUpForm').addEventListener('submit', handleSignUp);
+            
+            // Forgot password form
+            document.getElementById('forgotForm').addEventListener('submit', handleForgotPassword);
+            
+            // Profile form
+            document.getElementById('profileForm').addEventListener('submit', handleProfileSave);
+            
+            // Exam form
+            document.getElementById('examForm').addEventListener('submit', handleExamSave);
+            
+            // License form
+            document.getElementById('licenseForm').addEventListener('submit', handleLicenseSave);
+        }
+
+        // Toggle functions for dropdown "other" options
+        function toggleCareerPlanOther() {
+            const select = document.getElementById('careerPlanSelect');
+            const textarea = document.getElementById('careerPlan');
+            
+            if (select.value === 'other') {
+                textarea.classList.remove('hidden');
+                textarea.required = true;
+            } else {
+                textarea.classList.add('hidden');
+                textarea.required = false;
+                textarea.value = '';
+            }
+        }
+
+        function toggleStudyPlanOther() {
+            const select = document.getElementById('studyPlanSelect');
+            const textarea = document.getElementById('studyPlan');
+            
+            if (select.value === 'other') {
+                textarea.classList.remove('hidden');
+                textarea.required = true;
+            } else {
+                textarea.classList.add('hidden');
+                textarea.required = false;
+                textarea.value = '';
+            }
+        }
+
+        function toggleInternationalPlanOther() {
+            const select = document.getElementById('internationalPlanSelect');
+            const textarea = document.getElementById('internationalPlan');
+            
+            if (select.value === 'other') {
+                textarea.classList.remove('hidden');
+                textarea.required = true;
+            } else {
+                textarea.classList.add('hidden');
+                textarea.required = false;
+                textarea.value = '';
+            }
+        }
+
+        function setupProfileImageUpload() {
+            document.getElementById('profileImageInput').addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        document.getElementById('profileImage').src = e.target.result;
+                        document.getElementById('cardProfileImage').src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        function generateExamSubjectsForm() {
+            const container = document.getElementById('examSubjects');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            // Get previously passed subjects
+            const passedSubjects = getPassedSubjects();
+            
+            examSubjects.forEach((subject, index) => {
+                const div = document.createElement('div');
+                const isPassed = passedSubjects.includes(subject);
+                
+                div.className = `flex items-center justify-between p-3 border rounded-lg ${
+                    isPassed ? 'border-green-200 bg-green-50' : 'border-gray-200'
+                }`;
+                
+                if (isPassed) {
+                    div.innerHTML = `
+                        <span class="text-sm font-medium text-green-700">${subject}</span>
+                        <div class="flex items-center space-x-2">
+                            <span class="px-3 py-2 bg-green-100 text-green-800 rounded text-sm font-medium">
+                                <i class="fas fa-check-circle mr-1"></i>ผ่านแล้ว
+                            </span>
+                            <button type="button" onclick="removePassedSubject('${subject}')" class="px-2 py-1 bg-red-100 text-red-600 rounded text-xs hover:bg-red-200">
+                                <i class="fas fa-times"></i> ยกเลิก
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    div.innerHTML = `
+                        <span class="text-sm font-medium">${subject}</span>
+                        <select name="subject_${index}" data-subject="${subject}" class="px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500" onchange="updateCurrentExamProgress()">
+                            <option value="">ไม่ได้สอบ/เลือกผล</option>
+                            <option value="pass">ผ่าน</option>
+                            <option value="fail">ไม่ผ่าน</option>
+                        </select>
+                    `;
+                }
+                
+                container.appendChild(div);
+            });
+            
+            // Update progress after generating form
+            setTimeout(() => {
+                updateCurrentExamProgress();
+            }, 100);
+        }
+
+        function removePassedSubject(subject) {
+            if (confirm(`ต้องการยกเลิกการผ่านวิชา "${subject}" หรือไม่?`)) {
+                const passedSubjects = getPassedSubjects();
+                const updatedSubjects = passedSubjects.filter(s => s !== subject);
+                savePassedSubjects(updatedSubjects);
+                
+                // Regenerate form and update progress
+                generateExamSubjectsForm();
+                updateExamProgress();
+                updateCurrentExamProgress();
+                
+                // Hide license info if not all subjects passed
+                if (updatedSubjects.length < examSubjects.length) {
+                    const licenseInfo = document.getElementById('licenseInfo');
+                    if (licenseInfo) {
+                        licenseInfo.classList.add('hidden');
+                    }
+                }
+            }
+        }
+
+        function updateCurrentExamProgress() {
+            const selects = document.querySelectorAll('#examSubjects select');
+            const passedSubjects = getPassedSubjects();
+            let currentExamPassed = 0;
+            let currentExamFailed = 0;
+            let currentExamNotTaken = 0;
+            
+            // Count already passed subjects
+            let totalPassedCount = passedSubjects.length;
+            
+            // Count new passes in current exam
+            selects.forEach((select) => {
+                const subject = select.getAttribute('data-subject');
+                if (select.value === 'pass' && !passedSubjects.includes(subject)) {
+                    currentExamPassed++;
+                    totalPassedCount++;
+                } else if (select.value === 'fail') {
+                    currentExamFailed++;
+                } else if (select.value === '') {
+                    currentExamNotTaken++;
+                }
+            });
+            
+            const percentage = (totalPassedCount / examSubjects.length) * 100;
+            const progressBar = document.getElementById('currentExamProgressBar');
+            const progressText = document.getElementById('currentExamProgress');
+            const progressMessage = document.getElementById('progressMessage');
+            
+            if (progressBar && progressText && progressMessage) {
+                progressBar.style.width = percentage + '%';
+                progressText.textContent = `${totalPassedCount}/${examSubjects.length}`;
+                
+                if (currentExamPassed === 0 && currentExamFailed === 0 && passedSubjects.length === 0) {
+                    progressMessage.textContent = 'เลือกผลการสอบเพื่อดูความคืบหน้า';
+                    progressMessage.className = 'text-xs text-blue-600 mt-2';
+                } else if (totalPassedCount === examSubjects.length) {
+                    progressMessage.textContent = '🎉 ยินดีด้วย! สอบผ่านครบทุกวิชาแล้ว';
+                    progressMessage.className = 'text-xs text-green-600 mt-2 font-medium';
+                } else {
+                    let message = '';
+                    if (currentExamPassed > 0) {
+                        message += `ผ่านใหม่ ${currentExamPassed} วิชา `;
+                    }
+                    if (currentExamFailed > 0) {
+                        message += `ไม่ผ่าน ${currentExamFailed} วิชา `;
+                    }
+                    if (currentExamNotTaken > 0) {
+                        message += `ไม่ได้สอบ ${currentExamNotTaken} วิชา `;
+                    }
+                    
+                    if (message === '') {
+                        message = `สอบผ่านแล้ว ${totalPassedCount} วิชา เหลืออีก ${examSubjects.length - totalPassedCount} วิชา`;
+                    } else {
+                        message += `| รวมผ่าน ${totalPassedCount}/${examSubjects.length} วิชา`;
+                    }
+                    
+                    progressMessage.textContent = message;
+                    progressMessage.className = totalPassedCount > passedSubjects.length ? 
+                        'text-xs text-green-600 mt-2' : 'text-xs text-orange-600 mt-2';
+                }
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            
+            // Show loading
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>กำลังเข้าสู่ระบบ...';
+            submitBtn.disabled = true;
+            
+            try {
+                // First check demo users
+                const demoUser = demoUsers.find(user => user.email === email && user.password === password);
+                if (demoUser) {
+                    currentUser = demoUser;
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    showMainApp();
+                    return;
+                }
+                
+                // Then check registered users from localStorage
+                const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+                const registeredUser = registeredUsers.find(user => user.email === email && user.password === password);
+                
+                if (registeredUser) {
+                    currentUser = {
+                        email: registeredUser.email,
+                        name: `${registeredUser.firstName} ${registeredUser.lastName}`,
+                        role: registeredUser.userType,
+                        userType: registeredUser.userType
+                    };
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    showMainApp();
+                    return;
+                }
+                
+                // Try Google Sheets authentication if available
+                if (typeof authenticateUser === 'function') {
+                    const user = await authenticateUser(email, password);
+                    if (user) {
+                        currentUser = user;
+                        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                        showMainApp();
+                        return;
+                    }
+                }
+                
+                // If no user found
+                const errorMsg = currentLanguage === 'th' ? 
+                    'อีเมลหรือรหัสผ่านไม่ถูกต้อง' : 
+                    'Invalid email or password';
+                alert(errorMsg);
+                
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('เกิดข้อผิดพลาดในการเข้าสู่ระบบ กรุณาลองใหม่อีกครั้ง');
+            } finally {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+
+        async function handleSignUp(e) {
+            e.preventDefault();
+            
+            const userData = {
+                userType: document.getElementById('userType').value,
+                firstName: document.getElementById('firstName').value,
+                lastName: document.getElementById('lastName').value,
+                email: document.getElementById('signUpEmail').value,
+                password: document.getElementById('signUpPassword').value,
+                registrationDate: new Date().toISOString()
+            };
+            
+            // Validate required fields
+            if (!userData.userType || !userData.firstName || !userData.lastName || !userData.email || !userData.password) {
+                alert('กรุณากรอกข้อมูลให้ครบถ้วน');
+                return;
+            }
+            
+            // Show loading
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>กำลังสมัครสมาชิก...';
+            submitBtn.disabled = true;
+            
+            try {
+                // Check if email already exists
+                const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+                const existingUser = registeredUsers.find(user => user.email === userData.email);
+                const existingDemo = demoUsers.find(user => user.email === userData.email);
+                
+                if (existingUser || existingDemo) {
+                    alert('อีเมลนี้ถูกใช้งานแล้ว กรุณาใช้อีเมลอื่น');
+                    return;
+                }
+                
+                // Save to localStorage
+                registeredUsers.push(userData);
+                localStorage.setItem('registeredUsers', JSON.stringify(registeredUsers));
+                
+                // Try to save to Google Sheets if available
+                if (typeof registerUser === 'function') {
+                    try {
+                        await registerUser(userData);
+                    } catch (error) {
+                        console.warn('Could not save to Google Sheets, but saved locally:', error);
+                    }
+                }
+                
+                alert('การสมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบด้วยข้อมูลที่สมัคร');
+                
+                // Reset form
+                document.getElementById('signUpForm').reset();
+                showLogin();
+                
+            } catch (error) {
+                console.error('Registration error:', error);
+                alert('เกิดข้อผิดพลาดในการสมัครสมาชิก กรุณาลองใหม่อีกครั้ง');
+            } finally {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+
+        function handleForgotPassword(e) {
+            e.preventDefault();
+            const email = document.getElementById('forgotEmail').value.trim();
+            
+            if (!email) {
+                alert('กรุณากรอกอีเมล');
+                return;
+            }
+            
+            // Show loading
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>กำลังส่งลิงก์...';
+            submitBtn.disabled = true;
+            
+            // Check if email exists
+            const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+            const existingUser = registeredUsers.find(user => user.email === email);
+            const existingDemo = demoUsers.find(user => user.email === email);
+            
+            setTimeout(() => {
+                if (existingUser || existingDemo) {
+                    // For demo purposes, show a simple password reset dialog
+                    const newPassword = prompt('สำหรับการทดสอบ: กรุณาใส่รหัสผ่านใหม่');
+                    if (newPassword && newPassword.length >= 6) {
+                        if (existingUser) {
+                            // Update password in localStorage
+                            const userIndex = registeredUsers.findIndex(user => user.email === email);
+                            registeredUsers[userIndex].password = newPassword;
+                            localStorage.setItem('registeredUsers', JSON.stringify(registeredUsers));
+                        }
+                        alert('รหัสผ่านได้ถูกเปลี่ยนแล้ว กรุณาเข้าสู่ระบบด้วยรหัสผ่านใหม่');
+                    } else if (newPassword !== null) {
+                        alert('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
+                    }
+                } else {
+                    alert('ไม่พบอีเมลนี้ในระบบ กรุณาตรวจสอบอีเมลหรือสมัครสมาชิกใหม่');
+                }
+                
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+                showLogin();
+            }, 1000);
+        }
+
+        async function handleProfileSave(e) {
+            e.preventDefault();
+            
+            const profileData = {
+                email: currentUser.email,
+                title: document.getElementById('title').value,
+                firstNameTh: document.getElementById('firstNameTh').value,
+                lastNameTh: document.getElementById('lastNameTh').value,
+                firstNameEn: document.getElementById('firstNameEn').value,
+                lastNameEn: document.getElementById('lastNameEn').value,
+                studentId: document.getElementById('studentId').value,
+                graduationClass: document.getElementById('graduationClass').value,
+                advisor: document.getElementById('advisor').value,
+                birthDate: document.getElementById('birthDate').value,
+                gender: document.getElementById('gender').value,
+                birthCountry: document.getElementById('birthCountry').value,
+                nationality: document.getElementById('nationality').value,
+                ethnicity: document.getElementById('ethnicity').value,
+                phone: document.getElementById('phone').value,
+                gpax: document.getElementById('gpax').value,
+                address: document.getElementById('address').value,
+                emergencyName: document.getElementById('emergencyName').value,
+                emergencyRelation: document.getElementById('emergencyRelation').value,
+                emergencyPhone: document.getElementById('emergencyPhone').value,
+                awards: document.getElementById('awards').value,
+                careerPlan: document.getElementById('careerPlanSelect').value === 'other' ? 
+                    document.getElementById('careerPlan').value : document.getElementById('careerPlanSelect').value,
+                studyPlan: document.getElementById('studyPlanSelect').value === 'other' ? 
+                    document.getElementById('studyPlan').value : document.getElementById('studyPlanSelect').value,
+                internationalPlan: document.getElementById('internationalPlanSelect').value === 'other' ? 
+                    document.getElementById('internationalPlan').value : document.getElementById('internationalPlanSelect').value,
+                willTakeThaiLicense: document.getElementById('willTakeThaiLicense').checked,
+                lastUpdated: new Date().toISOString()
+            };
+            
+            // Show loading
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>กำลังบันทึก...';
+            submitBtn.disabled = true;
+            
+            try {
+                await saveToGoogleSheets('profiles', profileData);
+                
+                // Update ID card with profile data
+                updateIdCard();
+                
+                alert('บันทึกข้อมูลส่วนตัวสำเร็จ!');
+            } catch (error) {
+                console.error('Profile save error:', error);
+                alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง');
+            } finally {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+
+        async function handleExamSave(e) {
+            e.preventDefault();
+            
+            // Validate required fields
+            const examRound = document.getElementById('examRound').value;
+            const examSession = document.getElementById('examSession').value;
+            const examYear = document.getElementById('examYear').value;
+            
+            if (!examRound || !examSession || !examYear) {
+                alert('กรุณากรอกข้อมูลครั้งที่ รอบที่ และปีที่สอบให้ครบถ้วน');
+                return;
+            }
+            
+            // Get current passed subjects
+            const currentPassedSubjects = getPassedSubjects();
+            const newPassedSubjects = [...currentPassedSubjects];
+            
+            // Check exam results and update passed subjects
+            const subjects = document.querySelectorAll('#examSubjects select');
+            let allPassed = true;
+            let hasNewPasses = false;
+            let hasResults = false;
+            const examResults = {};
+            
+            subjects.forEach((select) => {
+                const subject = select.getAttribute('data-subject');
+                if (select.value) {
+                    examResults[subject] = select.value;
+                    hasResults = true;
+                    
+                    if (select.value === 'pass' && !currentPassedSubjects.includes(subject)) {
+                        newPassedSubjects.push(subject);
+                        hasNewPasses = true;
+                    }
+                }
+            });
+            
+            // Check if user selected any results
+            if (!hasResults) {
+                alert('กรุณาเลือกผลการสอบอย่างน้อย 1 วิชา');
+                return;
+            }
+            
+            // Check if all subjects are now passed
+            examSubjects.forEach(subject => {
+                if (!newPassedSubjects.includes(subject)) {
+                    allPassed = false;
+                }
+            });
+            
+            // Prepare exam data for Google Sheets
+            const examData = {
+                email: currentUser.email,
+                examRound: examRound,
+                examSession: examSession,
+                examYear: examYear,
+                results: examResults,
+                passedSubjects: newPassedSubjects,
+                allPassed: allPassed,
+                examDate: new Date().toISOString()
+            };
+            
+            // Show loading
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>กำลังบันทึก...';
+            submitBtn.disabled = true;
+            
+            try {
+                await saveToGoogleSheets('exams', examData);
+                
+                // Save updated passed subjects locally
+                if (hasNewPasses) {
+                    savePassedSubjects(newPassedSubjects);
+                }
+                
+                // Save exam history locally
+                saveExamToHistory(examRound, examSession, examYear);
+                
+                // Add to display
+                addExamToHistory(examRound, examSession, examYear);
+                
+                // Update progress display
+                updateExamProgress();
+                
+                // Show license form if all passed
+                if (allPassed) {
+                    document.getElementById('licenseInfo').classList.remove('hidden');
+                    alert('🎉 ยินดีด้วย! คุณสอบผ่านครบทุกวิชาแล้ว กรุณากรอกข้อมูลใบประกอบวิชาชีพด้านล่าง');
+                } else {
+                    alert(`บันทึกข้อมูลการสอบสำเร็จ! คุณสอบผ่านแล้ว ${newPassedSubjects.length}/${examSubjects.length} วิชา`);
+                }
+                
+                // Reset form
+                document.getElementById('examForm').reset();
+                
+                // Regenerate form to show updated passed subjects
+                generateExamSubjectsForm();
+                
+                // Reset current exam progress display
+                updateCurrentExamProgress();
+                
+            } catch (error) {
+                console.error('Exam save error:', error);
+                alert('เกิดข้อผิดพลาดในการบันทึกข้อมูลการสอบ กรุณาลองใหม่อีกครั้ง');
+            } finally {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+
+        async function handleLicenseSave(e) {
+            e.preventDefault();
+            
+            const licenseData = {
+                email: currentUser.email,
+                memberNumber: document.getElementById('memberNumber').value,
+                licenseNumber: document.getElementById('licenseNumber').value,
+                issueDate: document.getElementById('issueDate').value,
+                permitDate: document.getElementById('permitDate').value,
+                expiryDate: document.getElementById('expiryDate').value,
+                lastUpdated: new Date().toISOString()
+            };
+            
+            // Show loading
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>กำลังบันทึก...';
+            submitBtn.disabled = true;
+            
+            try {
+                await saveToGoogleSheets('licenses', licenseData);
+                alert('บันทึกข้อมูลใบประกอบวิชาชีพสำเร็จ!');
+            } catch (error) {
+                console.error('License save error:', error);
+                alert('เกิดข้อผิดพลาดในการบันทึกข้อมูลใบประกอบวิชาชีพ กรุณาลองใหม่อีกครั้ง');
+            } finally {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+
+        // Function to save exam history to localStorage
+        function saveExamToHistory(round, session, year) {
+            if (!currentUser) return;
+            
+            const userKey = `examHistory_${currentUser.email}`;
+            const existingHistory = JSON.parse(localStorage.getItem(userKey) || '[]');
+            
+            // Get current exam results
+            const subjects = document.querySelectorAll('#examSubjects select');
+            const examResults = {};
+            
+            subjects.forEach((select) => {
+                const subject = select.getAttribute('data-subject');
+                if (select.value) {
+                    examResults[subject] = select.value;
+                }
+            });
+            
+            // Add passed subjects that weren't in this exam
+            const passedSubjects = getPassedSubjects();
+            examSubjects.forEach(subject => {
+                if (passedSubjects.includes(subject) && !examResults[subject]) {
+                    examResults[subject] = 'already_passed';
+                }
+            });
+            
+            const examRecord = {
+                id: Date.now(),
+                round: round,
+                session: session,
+                year: year,
+                results: examResults,
+                timestamp: new Date().toISOString()
+            };
+            
+            existingHistory.unshift(examRecord); // Add to beginning
+            localStorage.setItem(userKey, JSON.stringify(existingHistory));
+        }
+        
+        // Function to load exam history from localStorage
+        function loadExamHistory() {
+            if (!currentUser) return;
+            
+            const userKey = `examHistory_${currentUser.email}`;
+            const history = JSON.parse(localStorage.getItem(userKey) || '[]');
+            
+            const historyContainer = document.getElementById('examHistory');
+            if (!historyContainer) return;
+            
+            historyContainer.innerHTML = '';
+            
+            if (history.length === 0) {
+                historyContainer.innerHTML = '<p class="text-center text-gray-500 py-8">ยังไม่มีประวัติการสอบ</p>';
+                return;
+            }
+            
+            history.forEach(exam => {
+                addExamToHistoryDisplay(exam);
+            });
+        }
+        
+        function addExamToHistory(round, session, year) {
+            // This function now just handles the display part
+            // The actual saving is done by saveExamToHistory
+            const historyContainer = document.getElementById('examHistory');
+            if (!historyContainer) return;
+            
+            const examDiv = document.createElement('div');
+            examDiv.className = 'border border-gray-200 rounded-lg p-4 mb-4 animate-fade-in';
+            
+            // Count results
+            let passCount = 0;
+            let failCount = 0;
+            let notTakenCount = 0;
+            
+            // Get current passed subjects to show in history
+            const passedSubjects = getPassedSubjects();
+            
+            const resultsHtml = examSubjects.map((subject, index) => {
+                const select = document.querySelector(`select[data-subject="${subject}"]`);
+                let result = '';
+                let resultText = '';
+                let resultClass = '';
+                let resultIcon = '';
+                
+                if (select && select.value) {
+                    result = select.value;
+                } else if (passedSubjects.includes(subject)) {
+                    result = 'already_passed';
+                } else {
+                    result = 'not_taken';
+                }
+                
+                if (result === 'pass') {
+                    resultText = 'ผ่าน';
+                    resultClass = 'text-green-600 bg-green-50';
+                    resultIcon = 'fas fa-check-circle';
+                    passCount++;
+                } else if (result === 'fail') {
+                    resultText = 'ไม่ผ่าน';
+                    resultClass = 'text-red-600 bg-red-50';
+                    resultIcon = 'fas fa-times-circle';
+                    failCount++;
+                } else if (result === 'already_passed') {
+                    resultText = 'ผ่านแล้ว';
+                    resultClass = 'text-green-600 bg-green-100';
+                    resultIcon = 'fas fa-check-circle';
+                } else {
+                    resultText = 'ไม่ได้สอบ';
+                    resultClass = 'text-gray-500 bg-gray-50';
+                    resultIcon = 'fas fa-minus-circle';
+                    notTakenCount++;
+                }
+                
+                return `
+                    <div class="flex items-center justify-between p-2 rounded ${resultClass}">
+                        <span class="text-xs font-medium">${subject}</span>
+                        <span class="flex items-center text-xs font-medium">
+                            <i class="${resultIcon} mr-1"></i>${resultText}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+            
+            // Summary
+            const summaryClass = passCount > failCount ? 'text-green-600' : passCount === 0 ? 'text-red-600' : 'text-orange-600';
+            
+            examDiv.innerHTML = `
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="font-medium text-gray-800">การสอบครั้งที่ ${round} รอบที่ ${session} ปี ${year}</h4>
+                    <div class="text-sm ${summaryClass} font-medium">
+                        ผ่าน ${passCount} | ไม่ผ่าน ${failCount} | ไม่ได้สอบ ${notTakenCount}
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                    ${resultsHtml}
+                </div>
+                <div class="mt-3 text-xs text-gray-500">
+                    <i class="fas fa-calendar mr-1"></i>บันทึกเมื่อ: ${new Date().toLocaleDateString('th-TH')} ${new Date().toLocaleTimeString('th-TH')}
+                </div>
+            `;
+            
+            // Insert at the beginning of history (most recent first)
+            if (historyContainer.firstChild && historyContainer.firstChild.tagName === 'DIV') {
+                historyContainer.insertBefore(examDiv, historyContainer.firstChild);
+            } else {
+                historyContainer.innerHTML = '';
+                historyContainer.appendChild(examDiv);
+            }
+        }
+        
+        function addExamToHistoryDisplay(exam) {
+            const historyContainer = document.getElementById('examHistory');
+            if (!historyContainer) return;
+            
+            const examDiv = document.createElement('div');
+            examDiv.className = 'border border-gray-200 rounded-lg p-4 mb-4';
+            
+            // Count results
+            let passCount = 0;
+            let failCount = 0;
+            let notTakenCount = 0;
+            
+            const resultsHtml = examSubjects.map((subject) => {
+                const result = exam.results[subject] || 'not_taken';
+                let resultText = '';
+                let resultClass = '';
+                let resultIcon = '';
+                
+                if (result === 'pass') {
+                    resultText = 'ผ่าน';
+                    resultClass = 'text-green-600 bg-green-50';
+                    resultIcon = 'fas fa-check-circle';
+                    passCount++;
+                } else if (result === 'fail') {
+                    resultText = 'ไม่ผ่าน';
+                    resultClass = 'text-red-600 bg-red-50';
+                    resultIcon = 'fas fa-times-circle';
+                    failCount++;
+                } else if (result === 'already_passed') {
+                    resultText = 'ผ่านแล้ว';
+                    resultClass = 'text-green-600 bg-green-100';
+                    resultIcon = 'fas fa-check-circle';
+                } else {
+                    resultText = 'ไม่ได้สอบ';
+                    resultClass = 'text-gray-500 bg-gray-50';
+                    resultIcon = 'fas fa-minus-circle';
+                    notTakenCount++;
+                }
+                
+                return `
+                    <div class="flex items-center justify-between p-2 rounded ${resultClass}">
+                        <span class="text-xs font-medium">${subject}</span>
+                        <span class="flex items-center text-xs font-medium">
+                            <i class="${resultIcon} mr-1"></i>${resultText}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+            
+            // Summary
+            const summaryClass = passCount > failCount ? 'text-green-600' : passCount === 0 ? 'text-red-600' : 'text-orange-600';
+            const examDate = new Date(exam.timestamp);
+            
+            examDiv.innerHTML = `
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="font-medium text-gray-800">การสอบครั้งที่ ${exam.round} รอบที่ ${exam.session} ปี ${exam.year}</h4>
+                    <div class="text-sm ${summaryClass} font-medium">
+                        ผ่าน ${passCount} | ไม่ผ่าน ${failCount} | ไม่ได้สอบ ${notTakenCount}
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                    ${resultsHtml}
+                </div>
+                <div class="mt-3 text-xs text-gray-500">
+                    <i class="fas fa-calendar mr-1"></i>บันทึกเมื่อ: ${examDate.toLocaleDateString('th-TH')} ${examDate.toLocaleTimeString('th-TH')}
+                </div>
+            `;
+            
+            historyContainer.appendChild(examDiv);
+        }
+
+        function updateIdCard() {
+            const title = document.getElementById('title').value || '';
+            const firstNameTh = document.getElementById('firstNameTh').value || '';
+            const lastNameTh = document.getElementById('lastNameTh').value || '';
+            const studentId = document.getElementById('studentId').value || '';
+            const graduationClass = document.getElementById('graduationClass').value || '';
+            
+            // Update student ID prefix based on user role
+            const prefix = document.getElementById('studentIdPrefix');
+            let fullStudentId = '';
+            
+            if (currentUser && currentUser.role === 'alumni') {
+                prefix.textContent = 'BLNSAL';
+                fullStudentId = studentId ? `BLNSAL${studentId}` : 'BLNSAL';
+            } else {
+                prefix.textContent = '';
+                fullStudentId = studentId || '';
+            }
+            
+            // Update card information
+            const fullName = `${title}${firstNameTh} ${lastNameTh}`.trim();
+            document.getElementById('cardName').textContent = fullName || 'ชื่อ-นามสกุล';
+            document.getElementById('cardStudentId').textContent = fullStudentId || 'รหัสนักศึกษา';
+            document.getElementById('cardClass').textContent = graduationClass ? `รุ่น ${graduationClass}` : 'รุ่นที่จบ';
+            
+            // Generate QR Code
+            if (fullStudentId && fullStudentId !== 'BLNSAL') {
+                generateQRCode(fullStudentId);
+            }
+            
+            // Change card style for alumni
+            const card = document.getElementById('virtualIdCard');
+            if (currentUser && currentUser.role === 'alumni') {
+                card.classList.add('alumni-card');
+            }
+        }
+
+        function generateQRCode(text) {
+            const qrContainer = document.getElementById('qrCodeContainer');
+            qrContainer.innerHTML = '';
+            
+            QRCode.toCanvas(qrContainer, text, {
+                width: 80,
+                height: 80,
+                margin: 1
+            }, function (error) {
+                if (error) console.error(error);
+            });
+        }
+
+        async function showMainApp() {
+            document.getElementById('loginPage').classList.add('hidden');
+            document.getElementById('signUpPage').classList.add('hidden');
+            document.getElementById('forgotPasswordPage').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+            
+            // Update welcome message
+            document.getElementById('userWelcome').textContent = `สวัสดี, ${currentUser.name}`;
+            
+            // Setup sidebar menu based on role
+            setupSidebarMenu();
+            
+            // Setup admin user selection (will check role inside function)
+            setupAdminUserSelection();
+            
+            // Load user data from Google Sheets
+            await loadUserData();
+            
+            // Show default content
+            if (currentUser.role === 'admin') {
+                showContent('dashboard');
+                await loadDashboardData();
+            } else {
+                showContent('profile');
+            }
+            
+            // Load exam history when app starts
+            loadExamHistory();
+            
+            // Update ID card on load
+            setTimeout(() => {
+                updateIdCard();
+                updateCurrentExamProgress();
+                // Generate sample QR code
+                generateQRCode('BLNSAL6512345');
+            }, 100);
+        }
+        
+        async function loadUserData() {
+            try {
+                // Load profile data
+                const profileData = await loadFromGoogleSheets('profiles', currentUser.email);
+                if (profileData) {
+                    fillFormWithData(profileData);
+                }
+                
+                // Load exam data
+                const examData = await loadFromGoogleSheets('exams', currentUser.email);
+                if (examData && examData.passedSubjects) {
+                    savePassedSubjects(examData.passedSubjects);
+                }
+                
+                // Load license data
+                const licenseData = await loadFromGoogleSheets('licenses', currentUser.email);
+                if (licenseData) {
+                    fillLicenseForm(licenseData);
+                }
+                
+            } catch (error) {
+                console.error('Error loading user data:', error);
+            }
+        }
+        
+        function fillFormWithData(data) {
+            // Fill profile form with loaded data
+            const fields = [
+                'title', 'firstNameTh', 'lastNameTh', 'firstNameEn', 'lastNameEn',
+                'studentId', 'graduationClass', 'advisor', 'birthDate', 'gender',
+                'birthCountry', 'nationality', 'ethnicity', 'phone', 'gpax',
+                'address', 'emergencyName', 'emergencyRelation', 'emergencyPhone',
+                'awards'
+            ];
+            
+            fields.forEach(field => {
+                const element = document.getElementById(field);
+                if (element && data[field]) {
+                    element.value = data[field];
+                }
+            });
+            
+            // Handle checkboxes
+            if (data.willTakeThaiLicense !== undefined) {
+                document.getElementById('willTakeThaiLicense').checked = data.willTakeThaiLicense;
+            }
+            
+            // Handle dropdowns with "other" options
+            if (data.careerPlan) {
+                const careerSelect = document.getElementById('careerPlanSelect');
+                const careerTextarea = document.getElementById('careerPlan');
+                const predefinedOptions = Array.from(careerSelect.options).map(opt => opt.value);
+                
+                if (predefinedOptions.includes(data.careerPlan)) {
+                    careerSelect.value = data.careerPlan;
+                } else {
+                    careerSelect.value = 'other';
+                    careerTextarea.value = data.careerPlan;
+                    careerTextarea.classList.remove('hidden');
+                }
+            }
+            
+            if (data.studyPlan) {
+                const studySelect = document.getElementById('studyPlanSelect');
+                const studyTextarea = document.getElementById('studyPlan');
+                const predefinedOptions = Array.from(studySelect.options).map(opt => opt.value);
+                
+                if (predefinedOptions.includes(data.studyPlan)) {
+                    studySelect.value = data.studyPlan;
+                } else {
+                    studySelect.value = 'other';
+                    studyTextarea.value = data.studyPlan;
+                    studyTextarea.classList.remove('hidden');
+                }
+            }
+            
+            if (data.internationalPlan) {
+                const intlSelect = document.getElementById('internationalPlanSelect');
+                const intlTextarea = document.getElementById('internationalPlan');
+                const predefinedOptions = Array.from(intlSelect.options).map(opt => opt.value);
+                
+                if (predefinedOptions.includes(data.internationalPlan)) {
+                    intlSelect.value = data.internationalPlan;
+                } else {
+                    intlSelect.value = 'other';
+                    intlTextarea.value = data.internationalPlan;
+                    intlTextarea.classList.remove('hidden');
+                }
+            }
+        }
+        
+        function fillLicenseForm(data) {
+            const fields = ['memberNumber', 'licenseNumber', 'issueDate', 'permitDate', 'expiryDate'];
+            
+            fields.forEach(field => {
+                const element = document.getElementById(field);
+                if (element && data[field]) {
+                    element.value = data[field];
+                }
+            });
+        }
+
+        // Sample users data for admin
+        const sampleUsers = [
+            {
+                id: 1,
+                email: 'somjai@example.com',
+                type: 'alumni',
+                titleTh: 'นางสาว',
+                firstNameTh: 'สมใจ',
+                lastNameTh: 'ใจดี',
+                firstNameEn: 'Somjai',
+                lastNameEn: 'Jaidee',
+                studentId: '6512345',
+                graduationClass: 'LXV',
+                phone: '+66 81 234 5678',
+                profileImage: null
+            },
+            {
+                id: 2,
+                email: 'malee@example.com',
+                type: 'student',
+                titleTh: 'นางสาว',
+                firstNameTh: 'มาลี',
+                lastNameTh: 'สวยงาม',
+                firstNameEn: 'Malee',
+                lastNameEn: 'Suayngam',
+                studentId: '6712346',
+                graduationClass: 'LXVI',
+                phone: '+66 82 345 6789',
+                profileImage: null
+            },
+            {
+                id: 3,
+                email: 'siriporn@example.com',
+                type: 'alumni',
+                titleTh: 'นางสาว',
+                firstNameTh: 'ศิริพร',
+                lastNameTh: 'ดีมาก',
+                firstNameEn: 'Siriporn',
+                lastNameEn: 'Deemak',
+                studentId: '6412347',
+                graduationClass: 'LXIV',
+                phone: '+66 83 456 7890',
+                profileImage: null
+            }
+        ];
+
+        function setupAdminUserSelection() {
+            // Only show admin user selection panels for admin users
+            if (currentUser && currentUser.role === 'admin') {
+                const adminUserSelection = document.getElementById('adminUserSelection');
+                const adminIdCardSelection = document.getElementById('adminIdCardSelection');
+                
+                if (adminUserSelection) {
+                    adminUserSelection.classList.remove('hidden');
+                    populateUserList('userList', 'userSearch', 'userTypeFilter');
+                }
+                
+                if (adminIdCardSelection) {
+                    adminIdCardSelection.classList.remove('hidden');
+                    populateUserList('idCardUserList', 'idCardUserSearch', 'idCardUserTypeFilter');
+                }
+                
+                // Setup search functionality
+                setupUserSearch();
+            } else {
+                // Hide admin panels for non-admin users
+                const adminUserSelection = document.getElementById('adminUserSelection');
+                const adminIdCardSelection = document.getElementById('adminIdCardSelection');
+                
+                if (adminUserSelection) {
+                    adminUserSelection.classList.add('hidden');
+                }
+                
+                if (adminIdCardSelection) {
+                    adminIdCardSelection.classList.add('hidden');
+                }
+            }
+        }
+
+        function populateUserList(listId, searchId, filterId) {
+            const userList = document.getElementById(listId);
+            if (!userList) return;
+            
+            userList.innerHTML = '';
+            
+            sampleUsers.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer';
+                userDiv.onclick = () => selectUser(user, listId);
+                
+                const fullNameTh = `${user.titleTh}${user.firstNameTh} ${user.lastNameTh}`;
+                const fullNameEn = `${user.firstNameEn} ${user.lastNameEn}`;
+                const studentIdFull = user.type === 'alumni' ? `BLNSAL${user.studentId}` : user.studentId;
+                const statusText = user.type === 'alumni' ? 'ศิษย์เก่า' : 'นักศึกษา';
+                const statusColor = user.type === 'alumni' ? 'text-orange-600' : 'text-blue-600';
+                
+                userDiv.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
+                            <i class="fas fa-user text-gray-600"></i>
+                        </div>
+                        <div>
+                            <p class="font-medium text-gray-800">${fullNameTh}</p>
+                            <p class="text-sm text-gray-600">${fullNameEn}</p>
+                            <p class="text-xs text-gray-500">${studentIdFull} • ${user.email}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="px-2 py-1 rounded text-xs font-medium ${statusColor} bg-gray-100">
+                            ${statusText}
+                        </span>
+                        <p class="text-xs text-gray-500 mt-1">รุ่น ${user.graduationClass}</p>
+                    </div>
+                `;
+                
+                userList.appendChild(userDiv);
+            });
+        }
+
+        function setupUserSearch() {
+            // Profile page search
+            const userSearch = document.getElementById('userSearch');
+            const userTypeFilter = document.getElementById('userTypeFilter');
+            
+            if (userSearch) {
+                userSearch.addEventListener('input', () => filterUsers('userList', 'userSearch', 'userTypeFilter'));
+            }
+            if (userTypeFilter) {
+                userTypeFilter.addEventListener('change', () => filterUsers('userList', 'userSearch', 'userTypeFilter'));
+            }
+            
+            // ID Card page search
+            const idCardUserSearch = document.getElementById('idCardUserSearch');
+            const idCardUserTypeFilter = document.getElementById('idCardUserTypeFilter');
+            
+            if (idCardUserSearch) {
+                idCardUserSearch.addEventListener('input', () => filterUsers('idCardUserList', 'idCardUserSearch', 'idCardUserTypeFilter'));
+            }
+            if (idCardUserTypeFilter) {
+                idCardUserTypeFilter.addEventListener('change', () => filterUsers('idCardUserList', 'idCardUserSearch', 'idCardUserTypeFilter'));
+            }
+        }
+
+        function filterUsers(listId, searchId, filterId) {
+            const searchTerm = document.getElementById(searchId).value.toLowerCase();
+            const typeFilter = document.getElementById(filterId).value;
+            
+            const filteredUsers = sampleUsers.filter(user => {
+                const matchesSearch = !searchTerm || 
+                    user.firstNameTh.toLowerCase().includes(searchTerm) ||
+                    user.lastNameTh.toLowerCase().includes(searchTerm) ||
+                    user.firstNameEn.toLowerCase().includes(searchTerm) ||
+                    user.lastNameEn.toLowerCase().includes(searchTerm) ||
+                    user.studentId.includes(searchTerm) ||
+                    user.email.toLowerCase().includes(searchTerm);
+                
+                const matchesType = !typeFilter || user.type === typeFilter;
+                
+                return matchesSearch && matchesType;
+            });
+            
+            const userList = document.getElementById(listId);
+            if (!userList) return;
+            
+            userList.innerHTML = '';
+            
+            filteredUsers.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer';
+                userDiv.onclick = () => selectUser(user, listId);
+                
+                const fullNameTh = `${user.titleTh}${user.firstNameTh} ${user.lastNameTh}`;
+                const fullNameEn = `${user.firstNameEn} ${user.lastNameEn}`;
+                const studentIdFull = user.type === 'alumni' ? `BLNSAL${user.studentId}` : user.studentId;
+                const statusText = user.type === 'alumni' ? 'ศิษย์เก่า' : 'นักศึกษา';
+                const statusColor = user.type === 'alumni' ? 'text-orange-600' : 'text-blue-600';
+                
+                userDiv.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
+                            <i class="fas fa-user text-gray-600"></i>
+                        </div>
+                        <div>
+                            <p class="font-medium text-gray-800">${fullNameTh}</p>
+                            <p class="text-sm text-gray-600">${fullNameEn}</p>
+                            <p class="text-xs text-gray-500">${studentIdFull} • ${user.email}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="px-2 py-1 rounded text-xs font-medium ${statusColor} bg-gray-100">
+                            ${statusText}
+                        </span>
+                        <p class="text-xs text-gray-500 mt-1">รุ่น ${user.graduationClass}</p>
+                    </div>
+                `;
+                
+                userList.appendChild(userDiv);
+            });
+            
+            if (filteredUsers.length === 0) {
+                userList.innerHTML = '<p class="text-center text-gray-500 py-4">ไม่พบผู้ใช้ที่ตรงกับเงื่อนไข</p>';
+            }
+        }
+
+        function selectUser(user, listId) {
+            // Fill profile form with selected user data
+            if (listId === 'userList') {
+                fillProfileForm(user);
+            } else if (listId === 'idCardUserList') {
+                fillIdCard(user);
+            }
+            
+            // Highlight selected user
+            const userList = document.getElementById(listId);
+            if (userList) {
+                userList.querySelectorAll('div').forEach(div => {
+                    div.classList.remove('bg-orange-100', 'border-orange-300');
+                });
+                event.currentTarget.classList.add('bg-orange-100', 'border-orange-300');
+            }
+        }
+
+        function fillProfileForm(user) {
+            // Fill form fields
+            document.getElementById('title').value = user.titleTh || '';
+            document.getElementById('firstNameTh').value = user.firstNameTh || '';
+            document.getElementById('lastNameTh').value = user.lastNameTh || '';
+            document.getElementById('firstNameEn').value = user.firstNameEn || '';
+            document.getElementById('lastNameEn').value = user.lastNameEn || '';
+            document.getElementById('studentId').value = user.studentId || '';
+            document.getElementById('graduationClass').value = user.graduationClass || '';
+            document.getElementById('email').value = user.email || '';
+            document.getElementById('phone').value = user.phone || '';
+            
+            // Update student ID prefix
+            const prefix = document.getElementById('studentIdPrefix');
+            if (prefix) {
+                prefix.textContent = user.type === 'alumni' ? 'BLNSAL' : '';
+            }
+            
+            // Update ID card
+            updateIdCard();
+        }
+
+        function fillIdCard(user) {
+            const fullNameTh = `${user.titleTh}${user.firstNameTh} ${user.lastNameTh}`;
+            const fullNameEn = `${user.firstNameEn} ${user.lastNameEn}`;
+            const studentIdFull = user.type === 'alumni' ? `BLNSAL${user.studentId}` : user.studentId;
+            const statusText = user.type === 'alumni' ? 'Alumni' : 'Student';
+            const statusTextTh = user.type === 'alumni' ? 'ศิษย์เก่า' : 'นักศึกษา';
+            
+            // Update front card
+            document.getElementById('cardNameFront').textContent = fullNameTh;
+            document.getElementById('cardNameEnFront').textContent = fullNameEn;
+            document.getElementById('cardStudentIdFront').textContent = studentIdFull;
+            document.getElementById('cardClassFront').textContent = `Class ${user.graduationClass}`;
+            document.getElementById('cardStatusFront').textContent = statusText;
+            
+            // Update back card
+            document.getElementById('cardEmailBack').textContent = user.email;
+            document.getElementById('cardPhoneBack').textContent = user.phone;
+            
+            // Update card info
+            document.getElementById('cardInfoName').textContent = fullNameTh;
+            document.getElementById('cardInfoNameEn').textContent = fullNameEn;
+            document.getElementById('cardInfoStudentId').textContent = studentIdFull;
+            document.getElementById('cardInfoClass').textContent = `รุ่น ${user.graduationClass}`;
+            document.getElementById('cardInfoStatus').textContent = statusTextTh;
+            document.getElementById('cardInfoEmail').textContent = user.email;
+            document.getElementById('cardInfoPhone').textContent = user.phone;
+            
+            // Update card style
+            const frontCard = document.getElementById('virtualIdCardFront');
+            const backCard = document.getElementById('virtualIdCardBack');
+            if (user.type === 'alumni') {
+                frontCard.classList.add('alumni-card');
+                backCard.classList.add('alumni-card');
+            } else {
+                frontCard.classList.remove('alumni-card');
+                backCard.classList.remove('alumni-card');
+            }
+            
+            // Generate QR Code
+            generateQRCode(studentIdFull);
+        }
+
+        function setupSidebarMenu() {
+            const sidebar = document.getElementById('sidebarMenu');
+            let menuItems = [];
+            
+            if (currentUser.role === 'admin') {
+                menuItems = [
+                    { id: 'dashboard', icon: 'fas fa-chart-pie', text: 'แดชบอร์ด', textEn: 'Dashboard' },
+                    { id: 'profile', icon: 'fas fa-user', text: 'ข้อมูลส่วนตัว', textEn: 'Profile' },
+                    { id: 'license', icon: 'fas fa-certificate', text: 'ติดตามใบประกอบวิชาชีพ', textEn: 'License Tracking' },
+                    { id: 'donation', icon: 'fas fa-heart', text: 'การบริจาค', textEn: 'Donation' },
+                    { id: 'idcard', icon: 'fas fa-id-card', text: 'บัตรประจำตัวเสมือน', textEn: 'Virtual ID Card' }
+                ];
+            } else {
+                menuItems = [
+                    { id: 'profile', icon: 'fas fa-user', text: 'ข้อมูลส่วนตัว', textEn: 'Profile' },
+                    { id: 'license', icon: 'fas fa-certificate', text: 'ติดตามใบประกอบวิชาชีพ', textEn: 'License Tracking' },
+                    { id: 'donation', icon: 'fas fa-heart', text: 'การบริจาค', textEn: 'Donation' },
+                    { id: 'idcard', icon: 'fas fa-id-card', text: 'บัตรประจำตัวเสมือน', textEn: 'Virtual ID Card' }
+                ];
+            }
+            
+            sidebar.innerHTML = menuItems.map(item => `
+                <li>
+                    <a href="#" onclick="showContent('${item.id}')" class="nav-item flex items-center space-x-3 text-white p-3 rounded-lg">
+                        <i class="${item.icon}"></i>
+                        <span data-th="${item.text}" data-en="${item.textEn}">${item.text}</span>
+                    </a>
+                </li>
+            `).join('');
+        }
+
+        // Language switching functionality
+        let currentLanguage = 'th';
+        
+        function switchLoginLanguage(lang) {
+            currentLanguage = lang;
+            
+            // Update login page language buttons
+            const loginThBtn = document.getElementById('loginLangTh');
+            const loginEnBtn = document.getElementById('loginLangEn');
+            
+            if (loginThBtn && loginEnBtn) {
+                loginThBtn.className = lang === 'th' ? 
+                    'px-3 py-1 rounded bg-orange-600 text-white text-sm' : 
+                    'px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm';
+                loginEnBtn.className = lang === 'en' ? 
+                    'px-3 py-1 rounded bg-orange-600 text-white text-sm' : 
+                    'px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm';
+            }
+            
+            // Update signup page language buttons
+            const signupThBtn = document.querySelector('.signup-lang-th');
+            const signupEnBtn = document.querySelector('.signup-lang-en');
+            
+            if (signupThBtn && signupEnBtn) {
+                signupThBtn.className = lang === 'th' ? 
+                    'signup-lang-th px-3 py-1 rounded bg-orange-600 text-white text-sm' : 
+                    'signup-lang-th px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm';
+                signupEnBtn.className = lang === 'en' ? 
+                    'signup-lang-en px-3 py-1 rounded bg-orange-600 text-white text-sm' : 
+                    'signup-lang-en px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm';
+            }
+            
+            // Update forgot password page language buttons
+            const forgotThBtn = document.querySelector('.forgot-lang-th');
+            const forgotEnBtn = document.querySelector('.forgot-lang-en');
+            
+            if (forgotThBtn && forgotEnBtn) {
+                forgotThBtn.className = lang === 'th' ? 
+                    'forgot-lang-th px-3 py-1 rounded bg-orange-600 text-white text-sm' : 
+                    'forgot-lang-th px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm';
+                forgotEnBtn.className = lang === 'en' ? 
+                    'forgot-lang-en px-3 py-1 rounded bg-orange-600 text-white text-sm' : 
+                    'forgot-lang-en px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm';
+            }
+            
+            // Update all text elements
+            document.querySelectorAll('[data-th][data-en]').forEach(element => {
+                const thText = element.getAttribute('data-th');
+                const enText = element.getAttribute('data-en');
+                element.textContent = lang === 'th' ? thText : enText;
+            });
+            
+            // Update placeholders
+            document.querySelectorAll('[data-placeholder-th][data-placeholder-en]').forEach(element => {
+                const thPlaceholder = element.getAttribute('data-placeholder-th');
+                const enPlaceholder = element.getAttribute('data-placeholder-en');
+                element.placeholder = lang === 'th' ? thPlaceholder : enPlaceholder;
+            });
+        }
+        
+        function switchLanguage(lang) {
+            currentLanguage = lang;
+            
+            // Update main app language buttons
+            const langThBtn = document.getElementById('langTh');
+            const langEnBtn = document.getElementById('langEn');
+            
+            if (langThBtn && langEnBtn) {
+                langThBtn.className = lang === 'th' ? 
+                    'px-3 py-1 rounded bg-orange-600 text-white text-sm' : 
+                    'px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm';
+                langEnBtn.className = lang === 'en' ? 
+                    'px-3 py-1 rounded bg-orange-600 text-white text-sm' : 
+                    'px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm';
+            }
+            
+            // Update all text elements
+            document.querySelectorAll('[data-th][data-en]').forEach(element => {
+                const thText = element.getAttribute('data-th');
+                const enText = element.getAttribute('data-en');
+                element.textContent = lang === 'th' ? thText : enText;
+            });
+            
+            // Update placeholders
+            document.querySelectorAll('[data-placeholder-th][data-placeholder-en]').forEach(element => {
+                const thPlaceholder = element.getAttribute('data-placeholder-th');
+                const enPlaceholder = element.getAttribute('data-placeholder-en');
+                element.placeholder = lang === 'th' ? thPlaceholder : enPlaceholder;
+            });
+        }
+
+        // Dashboard tab functionality
+        function showDashboardTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.dashboard-tab-content').forEach(tab => {
+                tab.classList.add('hidden');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + 'Tab').classList.remove('hidden');
+            
+            // Update tab buttons
+            document.querySelectorAll('.dashboard-tab').forEach(btn => {
+                btn.classList.remove('active', 'border-orange-500', 'text-orange-600');
+                btn.classList.add('border-transparent', 'text-gray-500');
+            });
+            
+            event.target.classList.add('active', 'border-orange-500', 'text-orange-600');
+            event.target.classList.remove('border-transparent', 'text-gray-500');
+            
+            // Initialize charts for the selected tab
+            setTimeout(() => {
+                if (tabName === 'demographics') {
+                    initializeDemographicsCharts();
+                } else if (tabName === 'work') {
+                    initializeWorkCharts();
+                } else if (tabName === 'license') {
+                    initializeLicenseCharts();
+                } else if (tabName === 'donations') {
+                    initializeDonationCharts();
+                }
+            }, 100);
+        }
+
+        // Progress bar functionality
+        function updateExamProgress() {
+            const subjectStatusContainer = document.getElementById('subjectStatus');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            // Get passed subjects from saved data
+            const passedSubjects = getPassedSubjects();
+            let passedCount = passedSubjects.length;
+            
+            if (subjectStatusContainer) {
+                subjectStatusContainer.innerHTML = '';
+                
+                examSubjects.forEach((subject, index) => {
+                    const isPassed = passedSubjects.includes(subject);
+                    
+                    const statusDiv = document.createElement('div');
+                    statusDiv.className = `flex items-center space-x-2 p-2 rounded ${isPassed ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`;
+                    statusDiv.innerHTML = `
+                        <i class="fas ${isPassed ? 'fa-check-circle text-green-600' : 'fa-circle text-gray-400'} text-sm"></i>
+                        <span class="text-xs font-medium">${subject.substring(0, 15)}...</span>
+                    `;
+                    subjectStatusContainer.appendChild(statusDiv);
+                });
+            }
+            
+            if (progressBar && progressText) {
+                const percentage = (passedCount / examSubjects.length) * 100;
+                progressBar.style.width = percentage + '%';
+                progressText.textContent = `${passedCount}/${examSubjects.length}`;
+            }
+        }
+
+        // Donation form functionality
+        function setupDonationForm() {
+            const donationPurpose = document.getElementById('donationPurpose');
+            const otherPurposeDiv = document.getElementById('otherPurposeDiv');
+            const paymentSlip = document.getElementById('paymentSlip');
+            const submitButton = document.getElementById('submitDonation');
+            
+            // Show/hide other purpose field
+            donationPurpose.addEventListener('change', function() {
+                if (this.value === 'other') {
+                    otherPurposeDiv.classList.remove('hidden');
+                } else {
+                    otherPurposeDiv.classList.add('hidden');
+                }
+            });
+            
+            // Handle file upload
+            paymentSlip.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const uploadArea = document.getElementById('uploadArea');
+                    const uploadPreview = document.getElementById('uploadPreview');
+                    const slipPreview = document.getElementById('slipPreview');
+                    const fileName = document.getElementById('fileName');
+                    
+                    uploadArea.classList.add('hidden');
+                    uploadPreview.classList.remove('hidden');
+                    
+                    if (file.type.startsWith('image/')) {
+                        const reader = new FileReader();
+                        reader.onload = function(e) {
+                            slipPreview.src = e.target.result;
+                            slipPreview.classList.remove('hidden');
+                        };
+                        reader.readAsDataURL(file);
+                    } else {
+                        slipPreview.classList.add('hidden');
+                    }
+                    
+                    fileName.textContent = file.name;
+                    
+                    // Enable submit button
+                    submitButton.disabled = false;
+                    submitButton.className = 'w-full bg-orange-600 text-white py-3 rounded-lg font-medium hover:bg-orange-700 transition duration-300';
+                }
+            });
+            
+            // Handle form submission
+            document.getElementById('donationForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const donationData = {
+                    email: currentUser.email,
+                    amount: document.getElementById('donationAmount').value,
+                    purpose: document.getElementById('donationPurpose').value,
+                    otherPurpose: document.getElementById('otherPurpose').value,
+                    message: document.getElementById('donationMessage').value,
+                    taxName: document.getElementById('taxName').value,
+                    taxId: document.getElementById('taxId').value,
+                    taxAddress: document.getElementById('taxAddress').value,
+                    donationDate: new Date().toISOString()
+                };
+                
+                // Show loading
+                const submitBtn = e.target.querySelector('button[type="submit"]');
+                const originalText = submitBtn.innerHTML;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>กำลังส่งข้อมูล...';
+                submitBtn.disabled = true;
+                
+                try {
+                    await saveToGoogleSheets('donations', donationData);
+                    alert(currentLanguage === 'th' ? 
+                        'ขอบคุณสำหรับการบริจาค! เราจะติดต่อกลับภายใน 24 ชั่วโมง' : 
+                        'Thank you for your donation! We will contact you within 24 hours');
+                    
+                    // Reset form
+                    e.target.reset();
+                    document.getElementById('uploadPreview').classList.add('hidden');
+                    document.getElementById('uploadArea').classList.remove('hidden');
+                    document.getElementById('otherPurposeDiv').classList.add('hidden');
+                    submitBtn.disabled = true;
+                    submitBtn.className = 'w-full bg-gray-400 text-white py-3 rounded-lg font-medium cursor-not-allowed';
+                    
+                } catch (error) {
+                    console.error('Donation save error:', error);
+                    alert('เกิดข้อผิดพลาดในการส่งข้อมูลการบริจาค กรุณาลองใหม่อีกครั้ง');
+                } finally {
+                    submitBtn.innerHTML = originalText;
+                }
+            });
+        }
+
+        async function loadDashboardData() {
+            try {
+                const stats = await getDashboardData();
+                if (stats) {
+                    updateDashboardStats(stats);
+                    updateDashboardCharts(stats);
+                }
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+                // Show fallback data or error message
+                showDashboardError();
+            }
+        }
+
+        function updateDashboardStats(stats) {
+            // Update overview stats
+            document.getElementById('totalStudents').textContent = stats.users.students || 0;
+            document.getElementById('totalAlumni').textContent = stats.users.alumni || 0;
+            document.getElementById('totalPassed').textContent = stats.exams.passed || 0;
+            document.getElementById('passRate').textContent = `${stats.exams.passRate || 0}%`;
+            
+            // Update donation amount if element exists
+            const donationElement = document.getElementById('totalDonationAmount');
+            if (donationElement) {
+                donationElement.textContent = `฿${(stats.donations.amount || 0).toLocaleString()}`;
+            }
+        }
+
+        function updateDashboardCharts(stats) {
+            // Store stats globally for chart functions
+            window.dashboardStats = stats;
+            
+            // Reinitialize charts with real data
+            setTimeout(() => {
+                initializeDemographicsCharts();
+                initializeWorkCharts();
+                initializeLicenseCharts();
+                initializeDonationCharts();
+            }, 100);
+        }
+
+        function showDashboardError() {
+            // Show error message and fallback to sample data
+            console.warn('Using fallback dashboard data');
+            const fallbackStats = {
+                users: { students: 0, alumni: 0 },
+                exams: { passed: 0, passRate: 0 },
+                donations: { amount: 0 }
+            };
+            updateDashboardStats(fallbackStats);
+        }
+
+        async function refreshDashboard() {
+            const button = event.target;
+            const icon = button.querySelector('i');
+            
+            icon.classList.add('fa-spin');
+            button.disabled = true;
+            
+            try {
+                await loadDashboardData();
+                alert(currentLanguage === 'th' ? 'ข้อมูลได้รับการอัปเดตแล้ว' : 'Data has been updated');
+            } catch (error) {
+                console.error('Dashboard refresh error:', error);
+                alert(currentLanguage === 'th' ? 'เกิดข้อผิดพลาดในการอัปเดตข้อมูล' : 'Error updating data');
+            } finally {
+                icon.classList.remove('fa-spin');
+                button.disabled = false;
+            }
+        }
+
+        function showContent(contentId) {
+            // Hide all content
+            document.querySelectorAll('[id$="Content"]').forEach(el => {
+                el.classList.add('hidden');
+            });
+            
+            // Show selected content
+            document.getElementById(contentId + 'Content').classList.remove('hidden');
+            
+            // Load exam history when showing license content
+            if (contentId === 'license') {
+                setTimeout(() => {
+                    loadExamHistory();
+                    updateExamProgress();
+                }, 100);
+            }
+            
+            // Update active menu item
+            document.querySelectorAll('.nav-item').forEach(el => {
+                el.classList.remove('bg-white', 'bg-opacity-20');
+            });
+            if (event && event.target) {
+                event.target.closest('.nav-item').classList.add('bg-white', 'bg-opacity-20');
+            }
+        }
+
+        function initializeCharts() {
+            initializeDemographicsCharts();
+        }
+
+        function initializeDemographicsCharts() {
+            const stats = window.dashboardStats;
+            
+            // Gender Distribution Chart
+            const genderCtx = document.getElementById('genderChart');
+            if (genderCtx && stats) {
+                const genderData = stats.demographics.gender;
+                const labels = Object.keys(genderData);
+                const data = Object.values(genderData);
+                
+                new Chart(genderCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels.length > 0 ? labels : ['ไม่มีข้อมูล'],
+                        datasets: [{
+                            data: data.length > 0 ? data : [1],
+                            backgroundColor: ['#EC4899', '#3B82F6', '#10B981', '#F59E0B'],
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        }
+                    }
+                });
+            }
+
+            // Age Distribution Chart
+            const ageCtx = document.getElementById('ageChart');
+            if (ageCtx && stats) {
+                const ageData = stats.demographics.age;
+                const ageLabels = ['20-25', '26-30', '31-35', '36-40', '41+'];
+                const ageValues = ageLabels.map(label => ageData[label] || 0);
+                
+                new Chart(ageCtx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ageLabels,
+                        datasets: [{
+                            label: 'จำนวนคน',
+                            data: ageValues,
+                            backgroundColor: '#ed820e',
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            }
+
+            // Nationality Chart
+            const nationalityCtx = document.getElementById('nationalityChart');
+            if (nationalityCtx && stats) {
+                const nationalityData = stats.demographics.nationality;
+                const nationalityLabels = Object.keys(nationalityData);
+                const nationalityValues = Object.values(nationalityData);
+                
+                new Chart(nationalityCtx.getContext('2d'), {
+                    type: 'pie',
+                    data: {
+                        labels: nationalityLabels.length > 0 ? nationalityLabels : ['ไม่มีข้อมูล'],
+                        datasets: [{
+                            data: nationalityValues.length > 0 ? nationalityValues : [1],
+                            backgroundColor: ['#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#6B7280', '#EC4899', '#3B82F6']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            // Class Distribution Chart
+            const classCtx = document.getElementById('classChart');
+            if (classCtx && stats) {
+                const classData = stats.demographics.graduationClass;
+                const classLabels = Object.keys(classData);
+                const classValues = Object.values(classData);
+                
+                new Chart(classCtx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: classLabels.length > 0 ? classLabels : ['ไม่มีข้อมูล'],
+                        datasets: [{
+                            label: 'จำนวนคน',
+                            data: classValues.length > 0 ? classValues : [0],
+                            backgroundColor: '#ffb27f',
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            }
+        }
+
+        function initializeWorkCharts() {
+            // Work Status Chart
+            const workCtx = document.getElementById('workChart');
+            if (workCtx) {
+                new Chart(workCtx.getContext('2d'), {
+                    type: 'pie',
+                    data: {
+                        labels: ['ทำงานแล้ว', 'กำลังหางาน', 'ศึกษาต่อ', 'อื่นๆ'],
+                        datasets: [{
+                            data: [234, 45, 67, 32],
+                            backgroundColor: ['#059669', '#F59E0B', '#8B5CF6', '#6B7280']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            // International Work Chart
+            const intlCtx = document.getElementById('internationalChart');
+            if (intlCtx) {
+                new Chart(intlCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['ทำงานในประเทศ', 'ทำงานต่างประเทศ', 'มีแผนไปต่างประเทศ'],
+                        datasets: [{
+                            data: [298, 45, 89],
+                            backgroundColor: ['#1F2937', '#DC2626', '#F97316']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            // Workplace Type Chart
+            const workplaceCtx = document.getElementById('workplaceChart');
+            if (workplaceCtx) {
+                new Chart(workplaceCtx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['โรงพยาบาลรัฐ', 'โรงพยาบาลเอกชน', 'คลินิก', 'สถานพยาบาล', 'อื่นๆ'],
+                        datasets: [{
+                            label: 'จำนวนคน',
+                            data: [145, 89, 34, 23, 12],
+                            backgroundColor: '#ed820e'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            }
+
+            // Salary Chart
+            const salaryCtx = document.getElementById('salaryChart');
+            if (salaryCtx) {
+                new Chart(salaryCtx.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: ['รุ่น I-V', 'รุ่น VI-X', 'รุ่น XI-XV', 'รุ่น XVI-XX', 'รุ่น XXI+'],
+                        datasets: [{
+                            label: 'เงินเดือนเฉลี่ย (บาท)',
+                            data: [45000, 38000, 32000, 28000, 25000],
+                            borderColor: '#ed820e',
+                            backgroundColor: 'rgba(237, 130, 14, 0.1)',
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false
+                    }
+                });
+            }
+        }
+
+        function initializeLicenseCharts() {
+            const stats = window.dashboardStats;
+            
+            // Overall Pass Rate Chart
+            const examCtx = document.getElementById('examChart');
+            if (examCtx && stats) {
+                const totalUsers = stats.users.total || 1;
+                const passed = stats.exams.passed || 0;
+                const failed = stats.exams.failed || 0;
+                const notTaken = Math.max(0, totalUsers - passed - failed);
+                
+                new Chart(examCtx.getContext('2d'), {
+                    type: 'pie',
+                    data: {
+                        labels: ['สอบผ่าน', 'สอบไม่ผ่าน', 'ยังไม่ได้สอบ'],
+                        datasets: [{
+                            data: [passed, failed, notTaken],
+                            backgroundColor: ['#10B981', '#EF4444', '#6B7280']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            // Exam Round Chart
+            const examRoundCtx = document.getElementById('examRoundChart');
+            if (examRoundCtx) {
+                new Chart(examRoundCtx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['2021 รอบ 1', '2021 รอบ 2', '2022 รอบ 1', '2022 รอบ 2', '2023 รอบ 1', '2023 รอบ 2'],
+                        datasets: [{
+                            label: 'อัตราผ่าน (%)',
+                            data: [65, 72, 68, 75, 78, 82],
+                            backgroundColor: '#ed820e'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true, max: 100 } }
+                    }
+                });
+            }
+
+            // Subject Pass Rate Chart
+            const subjectCtx = document.getElementById('subjectChart');
+            if (subjectCtx && stats) {
+                const subjectStats = stats.exams.subjectStats || {};
+                const examSubjects = Object.keys(subjectStats);
+                const passRates = examSubjects.map(subject => {
+                    const subjectData = subjectStats[subject];
+                    return subjectData.total > 0 ? 
+                        Math.round((subjectData.passed / subjectData.total) * 100) : 0;
+                });
+                
+                new Chart(subjectCtx.getContext('2d'), {
+                    type: 'horizontalBar',
+                    data: {
+                        labels: examSubjects.length > 0 ? 
+                            examSubjects.map(s => s.substring(0, 20) + '...') : 
+                            ['ไม่มีข้อมูล'],
+                        datasets: [{
+                            label: 'อัตราผ่าน (%)',
+                            data: passRates.length > 0 ? passRates : [0],
+                            backgroundColor: '#ffb27f'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { x: { beginAtZero: true, max: 100 } }
+                    }
+                });
+            }
+
+            // Retake Comparison Chart
+            const retakeCtx = document.getElementById('retakeChart');
+            if (retakeCtx) {
+                new Chart(retakeCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['สอบครั้งแรก', 'สอบซ้ำ 1 ครั้ง', 'สอบซ้ำ 2+ ครั้ง'],
+                        datasets: [{
+                            data: [156, 67, 23],
+                            backgroundColor: ['#10B981', '#F59E0B', '#EF4444']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            // Age & Gender Analysis Chart
+            const ageGenderCtx = document.getElementById('ageGenderChart');
+            if (ageGenderCtx) {
+                new Chart(ageGenderCtx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['20-25', '26-30', '31-35', '36+'],
+                        datasets: [{
+                            label: 'หญิง (%)',
+                            data: [82, 78, 75, 70],
+                            backgroundColor: '#EC4899'
+                        }, {
+                            label: 'ชาย (%)',
+                            data: [85, 80, 72, 68],
+                            backgroundColor: '#3B82F6'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true, max: 100 } }
+                    }
+                });
+            }
+        }
+
+        function initializeDonationCharts() {
+            const stats = window.dashboardStats;
+            
+            // Donor Chart - Using user type data as proxy
+            const donorCtx = document.getElementById('donorChart');
+            if (donorCtx && stats) {
+                const alumni = stats.users.alumni || 0;
+                const students = stats.users.students || 0;
+                const total = stats.donations.total || 0;
+                
+                new Chart(donorCtx.getContext('2d'), {
+                    type: 'pie',
+                    data: {
+                        labels: total > 0 ? ['ศิษย์เก่า', 'นักศึกษา', 'อื่นๆ'] : ['ไม่มีข้อมูล'],
+                        datasets: [{
+                            data: total > 0 ? [Math.floor(total * 0.6), Math.floor(total * 0.3), Math.floor(total * 0.1)] : [1],
+                            backgroundColor: ['#10B981', '#3B82F6', '#8B5CF6']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            // Donation Purpose Chart
+            const purposeCtx = document.getElementById('donationPurposeChart');
+            if (purposeCtx && stats) {
+                const purposes = stats.donations.purposes || {};
+                const purposeLabels = Object.keys(purposes);
+                const purposeValues = Object.values(purposes);
+                
+                new Chart(purposeCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: purposeLabels.length > 0 ? purposeLabels : ['ไม่มีข้อมูล'],
+                        datasets: [{
+                            data: purposeValues.length > 0 ? purposeValues : [1],
+                            backgroundColor: ['#ed820e', '#ffb27f', '#10B981', '#3B82F6', '#6B7280', '#EC4899', '#8B5CF6']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            // Monthly Trend Chart
+            const trendCtx = document.getElementById('donationTrendChart');
+            if (trendCtx) {
+                new Chart(trendCtx.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.'],
+                        datasets: [{
+                            label: 'ยอดบริจาค (บาท)',
+                            data: [180000, 220000, 350000, 280000, 420000, 380000],
+                            borderColor: '#ed820e',
+                            backgroundColor: 'rgba(237, 130, 14, 0.1)',
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false
+                    }
+                });
+            }
+        }
+
+        function downloadIdCard() {
+            alert('ฟังก์ชันดาวน์โหลดบัตรจะพร้อมใช้งานในเร็วๆ นี้');
+        }
+
+        function printIdCard() {
+            // Create a new window for printing
+            const printWindow = window.open('', '_blank');
+            const frontCard = document.getElementById('virtualIdCardFront').outerHTML;
+            const backCard = document.getElementById('virtualIdCardBack').outerHTML;
+            
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>พิมพ์บัตรประจำตัว</title>
+                    <style>
+                        body { font-family: 'Sarabun', sans-serif; margin: 20px; }
+                        .print-container { display: flex; gap: 20px; justify-content: center; }
+                        .id-card { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); }
+                        .alumni-card { background: linear-gradient(135deg, #8B4513 0%, #A0522D 100%); }
+                        @media print { body { margin: 0; } }
+                    </style>
+                </head>
+                <body>
+                    <h2 style="text-align: center;">บัตรประจำตัวเสมือน - คณะพยาบาลศาสตร์</h2>
+                    <div class="print-container">
+                        <div><h3>ด้านหน้า</h3>${frontCard}</div>
+                        <div><h3>ด้านหลัง</h3>${backCard}</div>
+                    </div>
+                </body>
+                </html>
+            `);
+            
+            printWindow.document.close();
+            printWindow.print();
+        }
+
+        function shareIdCard() {
+            if (navigator.share) {
+                navigator.share({
+                    title: 'บัตรประจำตัวเสมือน - คณะพยาบาลศาสตร์',
+                    text: 'บัตรประจำตัวเสมือนของฉันจากคณะพยาบาลศาสตร์ มหาวิทยาลัยอัสสัมชัญ',
+                    url: window.location.href
+                });
+            } else {
+                // Fallback for browsers that don't support Web Share API
+                const url = window.location.href;
+                navigator.clipboard.writeText(url).then(() => {
+                    alert('ลิงก์ได้ถูกคัดลอกไปยังคลิปบอร์ดแล้ว');
+                }).catch(() => {
+                    alert('ไม่สามารถแชร์ได้ในขณะนี้');
+                });
+            }
+        }
+
+        function showLogin() {
+            document.getElementById('loginPage').classList.remove('hidden');
+            document.getElementById('signUpPage').classList.add('hidden');
+            document.getElementById('forgotPasswordPage').classList.add('hidden');
+        }
+
+        function showSignUp() {
+            document.getElementById('loginPage').classList.add('hidden');
+            document.getElementById('signUpPage').classList.remove('hidden');
+            document.getElementById('forgotPasswordPage').classList.add('hidden');
+        }
+
+        function showForgotPassword() {
+            document.getElementById('loginPage').classList.add('hidden');
+            document.getElementById('signUpPage').classList.add('hidden');
+            document.getElementById('forgotPasswordPage').classList.remove('hidden');
+        }
+
+        function logout() {
+            localStorage.removeItem('currentUser');
+            currentUser = null;
+            document.getElementById('mainApp').classList.add('hidden');
+            showLogin();
+        }
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97deca47040fd024',t:'MTc1NzY3MzY2Mi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
