@@ -3,7 +3,7 @@
 
 // Configuration - Update these with your actual Google Sheets IDs
 const CONFIG = {
-  SPREADSHEET_ID: '1OzQrcODKRHOshteILxowgCXAInVypWE9VoIAolK5AQA', // Replace with your Google Sheets ID
+  SPREADSHEET_ID: '1w0OQk2NMBZp64CQOhhGuHXHYk8-87cBztWSGxsNT7iE', // Replace with your Google Sheets ID
   SHEETS: {
     USERS: 'Users',
     PROFILES: 'Profiles', 
